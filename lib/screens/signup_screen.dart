@@ -1,0 +1,225 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dashboard_screen.dart';
+
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({Key? key}) : super(key: key);
+
+  @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  final TextEditingController fullNameController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  String selectedPurpose = 'Personal Use';
+
+  final List<String> purposeOptions = [
+    'Personal Use',
+    'Office Work',
+    'College Documents',
+    'Team Collaboration',
+    'Other'
+  ];
+
+  bool isLoading = false;
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
+
+  Future<bool> isUsernameUnique(String username) async {
+    final result = await _firestore
+        .collection('users')
+        .where('username', isEqualTo: username)
+        .get();
+    return result.docs.isEmpty;
+  }
+
+  Future<void> signUpUser() async {
+    final fullName = fullNameController.text.trim();
+    final username = usernameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+
+    if (fullName.isEmpty || username.isEmpty || email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("All fields are required.")),
+      );
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      if (!await isUsernameUnique(username)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Username is already taken.")),
+        );
+        return;
+      }
+
+      UserCredential userCred = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      await _firestore.collection('users').doc(userCred.user!.uid).set({
+        'fullName': fullName,
+        'username': username,
+        'email': email,
+        'purpose': selectedPurpose,
+        'uid': userCred.user!.uid,
+        'createdAt': Timestamp.now(),
+      });
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DashboardScreen()),
+      );
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: ${e.message}")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Unexpected Error: ${e.toString()}")),
+      );
+    } finally {
+      setState(() => isLoading = false); // ✅ This ensures the spinner always stops
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A3D62),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 60),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Logo
+              Center(
+                child: Image.asset(
+                  'assets/images/intellispace_logo.png',
+                  height: 120,
+                ),
+              ),
+              const SizedBox(height: 40),
+
+              const Text(
+                "Create Your Account",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Roboto',
+                ),
+              ),
+              const SizedBox(height: 30),
+
+              buildTextField(controller: fullNameController, hint: "Full Name", icon: Icons.person),
+              const SizedBox(height: 16),
+              buildTextField(controller: usernameController, hint: "Username (Unique)", icon: Icons.alternate_email),
+              const SizedBox(height: 16),
+              buildTextField(controller: emailController, hint: "Email", icon: Icons.email),
+              const SizedBox(height: 16),
+              buildTextField(controller: passwordController, hint: "Password", icon: Icons.lock, obscure: true),
+              const SizedBox(height: 16),
+
+              // Purpose Dropdown
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: DropdownButtonFormField<String>(
+                  value: selectedPurpose,
+                  dropdownColor: const Color(0xFF0A3D62),
+                  decoration: const InputDecoration(border: InputBorder.none),
+                  icon: const Icon(Icons.arrow_drop_down, color: Colors.white70),
+                  style: const TextStyle(color: Colors.white),
+                  items: purposeOptions.map((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value, style: const TextStyle(color: Colors.white70)),
+                    );
+                  }).toList(),
+                  onChanged: (newValue) {
+                    setState(() {
+                      selectedPurpose = newValue!;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(height: 30),
+
+              // Signup Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: isLoading ? null : signUpUser,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF0A3D62),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  child: isLoading
+                      ? const CircularProgressIndicator()
+                      : const Text(
+                    'Sign Up',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Go to Login
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text(
+                  "Already have an account? Login",
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    bool obscure = false,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscure,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.white70),
+        filled: true,
+        fillColor: Colors.white10,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: BorderSide.none,
+        ),
+        prefixIcon: Icon(icon, color: Colors.white70),
+      ),
+    );
+  }
+}

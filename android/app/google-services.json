@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "290440523859",
+    "project_id": "intellispace-95e2d",
+    "storage_bucket": "intellispace-95e2d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:290440523859:android:924995b17b0e342c4e16a6",
+        "android_client_info": {
+          "package_name": "com.intellispace.fyp_practice"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdjpff6ZiTADhaBA6ZMvQ8swf03244NkY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

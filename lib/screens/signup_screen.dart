@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dashboard_screen.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -26,15 +25,14 @@ class _SignupScreenState extends State<SignupScreen> {
   ];
 
   bool isLoading = false;
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
 
   Future<bool> isUsernameUnique(String username) async {
-    final result = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: username)
-        .get();
-    return result.docs.isEmpty;
+    final response = await Supabase.instance.client
+        .from('users')
+        .select()
+        .eq('username', username);
+
+    return response.isEmpty;
   }
 
   Future<void> signUpUser() async {
@@ -60,25 +58,33 @@ class _SignupScreenState extends State<SignupScreen> {
         return;
       }
 
-      UserCredential userCred = await _auth.createUserWithEmailAndPassword(
+      final response = await Supabase.instance.client.auth.signUp(
         email: email,
         password: password,
       );
 
-      await _firestore.collection('users').doc(userCred.user!.uid).set({
+      final userId = response.user?.id;
+      if (userId == null) throw Exception("Signup failed");
+
+      // Insert user metadata into Supabase DB
+      final insertResponse = await Supabase.instance.client.from('users').insert({
+        'uid': userId,
         'fullName': fullName,
         'username': username,
         'email': email,
         'purpose': selectedPurpose,
-        'uid': userCred.user!.uid,
-        'createdAt': Timestamp.now(),
+        'createdAt': DateTime.now().toIso8601String(),
       });
+
+      if (insertResponse.error != null) {
+        throw Exception("Failed to save user data");
+      }
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const DashboardScreen()),
       );
-    } on FirebaseAuthException catch (e) {
+    } on AuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: ${e.message}")),
       );
@@ -87,11 +93,9 @@ class _SignupScreenState extends State<SignupScreen> {
         SnackBar(content: Text("Unexpected Error: ${e.toString()}")),
       );
     } finally {
-      setState(() => isLoading = false); // ✅ This ensures the spinner always stops
+      setState(() => isLoading = false);
     }
   }
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

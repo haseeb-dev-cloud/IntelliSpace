@@ -1,55 +1,76 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path/path.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FileUploadService {
-  final storage = FirebaseStorage.instance;
-  final firestore = FirebaseFirestore.instance;
-  final auth = FirebaseAuth.instance;
+  final SupabaseClient supabase = Supabase.instance.client;
 
   Future<void> pickAndUploadFile() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (result == null) return;
+    try {
+      // Step 1: Pick file
+      final result = await FilePicker.platform.pickFiles();
+      if (result == null || result.files.single.path == null) {
+        print('❌ File selection cancelled.');
+        return;
+      }
 
-    final file = File(result.files.single.path!);
-    final fileName = basename(file.path);
-    final user = auth.currentUser;
-    final fileType = result.files.single.extension ?? 'unknown';
-    final fileSize = await file.length();
+      final file = File(result.files.single.path!);
+      final fileName = basename(file.path);
+      final fileExtension = extension(file.path).toLowerCase();
+      final fileSize = await file.length();
+      final fileBytes = await file.readAsBytes();
 
-    if (user == null) {
-      print("User not logged in.");
-      return;
+      // Step 2: Get current user
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception("User not logged in");
+
+      // Step 3: Define storage path
+      final folder = _getFolderNameFromExtension(fileExtension); // e.g. images/docs/videos
+      final storagePath = '${user.id}/$folder/$fileName';
+
+      // Step 4: Upload to Supabase Storage
+      final storageResponse = await supabase.storage
+          .from('user-files') // replace with your bucket
+          .uploadBinary(
+        storagePath,
+        fileBytes,
+        fileOptions: const FileOptions(
+          cacheControl: '3600',
+          upsert: true,
+        ),
+      );
+
+      // Step 5: Get public URL
+      final publicUrl = supabase.storage
+          .from('user-files')
+          .getPublicUrl(storagePath);
+
+      // Step 6: Save metadata to Supabase table
+      final insertResponse = await supabase.from('files').insert({
+        'user_id': user.id,
+        'name': fileName,
+        'path': storagePath,
+        'url': publicUrl,
+        'type': fileExtension.replaceFirst('.', ''),
+        'size': fileSize,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      print('✅ File uploaded & metadata saved!');
+    } catch (e) {
+      print('❌ Upload error: $e');
     }
+  }
 
-    // Folder structure: userId/category/filename
-    final storageRef = storage
-        .ref()
-        .child('user_files')
-        .child(user.uid)
-        .child(fileType)
-        .child(fileName);
+  String _getFolderNameFromExtension(String ext) {
+    final imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    final videoExts = ['.mp4', '.mov', '.avi', '.mkv'];
+    final docExts = ['.pdf', '.doc', '.docx', '.txt', '.ppt', '.pptx'];
 
-    final uploadTask = storageRef.putFile(file);
-    final snapshot = await uploadTask;
-    final downloadUrl = await snapshot.ref.getDownloadURL();
-
-    // Save metadata to Firestore
-    await firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('uploaded_files')
-        .add({
-      'fileName': fileName,
-      'fileType': fileType,
-      'fileSize': fileSize,
-      'url': downloadUrl,
-      'uploadTime': Timestamp.now(),
-    });
-
-    print("File uploaded and metadata saved.");
+    if (imageExts.contains(ext)) return 'images';
+    if (videoExts.contains(ext)) return 'videos';
+    if (docExts.contains(ext)) return 'docs';
+    return 'others';
   }
 }

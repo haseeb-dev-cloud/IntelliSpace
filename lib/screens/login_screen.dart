@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'signup_screen.dart';
 import 'dashboard_screen.dart';
 
@@ -31,26 +31,23 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final response = await Supabase.instance.client.auth
+          .signInWithPassword(email: email, password: password);
 
-      // Navigate to dashboard screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const DashboardScreen()),
-      );
-    } on FirebaseAuthException catch (e) {
-      String message = "Login failed";
-      if (e.code == 'user-not-found') {
-        message = 'No user found for that email.';
-      } else if (e.code == 'wrong-password') {
-        message = 'Incorrect password.';
+      if (response.session != null) {
+        // Navigate to dashboard screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DashboardScreen()),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Login failed. Please try again.")),
+        );
       }
-
+    } on AuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        SnackBar(content: Text(e.message)),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
       isLoading = false;
     });
   }
+
 
   @override
   Widget build(BuildContext context) {

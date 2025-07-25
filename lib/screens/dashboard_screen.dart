@@ -1,5 +1,6 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
 import 'ai_tools_screen.dart';
 import '../services/file_upload_service.dart';
@@ -8,7 +9,8 @@ class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   void _logout(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
+    await Supabase.instance.client.auth.signOut();
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -44,7 +46,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    FirebaseAuth.instance.currentUser?.email ?? "User",
+                    Supabase.instance.client.auth.currentUser?.email ?? "User",
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ],
@@ -122,9 +124,23 @@ class DashboardScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                actionButton(Icons.upload_file, "Upload", () async{
-                  await FileUploadService().pickAndUploadFile();
+                actionButton(Icons.upload_file, "Upload", () async {
+                  final uploadService = FileUploadService();
+
+                  try {
+                    await uploadService.pickAndUploadFile();
+
+                    // Optional: Success message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("File uploaded successfully!")),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Upload failed: $e")),
+                    );
+                  }
                 }),
+
                 actionButton(Icons.share, "Share", () {
                   // Share logic placeholder
                 }),

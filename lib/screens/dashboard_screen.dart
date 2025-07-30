@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'all_files_screen.dart';
 import 'login_screen.dart';
 import 'ai_tools_screen.dart';
 import '../services/file_upload_service.dart';
@@ -150,7 +151,10 @@ class DashboardScreen extends StatelessWidget {
                   // Share logic placeholder
                 }),
                 actionButton(Icons.folder_open, "Browse", () {
-                  // Browse logic placeholder
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => AllFilesScreen()),
+                  );
                 }),
                 actionButton(Icons.smart_toy, "AI Tools", () {
                   Navigator.push(

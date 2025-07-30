@@ -28,20 +28,24 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Future<bool> isUsernameUnique(String username) async {
     final response = await Supabase.instance.client
-        .from('users')
-        .select()
-        .eq('username', username);
+        .from('app_users')
+        .select('username')
+        .eq('username', username)
+        .maybeSingle();
 
-    return response.isEmpty;
+    return response == null;
   }
 
   Future<void> signUpUser() async {
     final fullName = fullNameController.text.trim();
     final username = usernameController.text.trim();
     final email = emailController.text.trim();
-    final password = passwordController.text;
+    final password = passwordController.text.trim();
 
-    if (fullName.isEmpty || username.isEmpty || email.isEmpty || password.isEmpty) {
+    if (fullName.isEmpty ||
+        username.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("All fields are required.")),
       );
@@ -51,10 +55,12 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => isLoading = true);
 
     try {
-      if (!await isUsernameUnique(username)) {
+      final isUnique = await isUsernameUnique(username);
+      if (!isUnique) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Username is already taken.")),
+          const SnackBar(content: Text("Username already exists.")),
         );
+        setState(() => isLoading = false);
         return;
       }
 
@@ -64,33 +70,32 @@ class _SignupScreenState extends State<SignupScreen> {
       );
 
       final userId = response.user?.id;
-      if (userId == null) throw Exception("Signup failed");
+      if (userId == null) {
+        throw Exception("Signup failed: No user returned.");
+      }
 
-      // Insert user metadata into Supabase DB
-      final insertResponse = await Supabase.instance.client.from('users').insert({
-        'uid': userId,
-        'fullName': fullName,
+      final insertResponse = await Supabase.instance.client
+          .from('app_users')
+          .insert({
+        'id': userId,
+        'full_name': fullName,
         'username': username,
         'email': email,
         'purpose': selectedPurpose,
-        'createdAt': DateTime.now().toIso8601String(),
-      });
-
-      if (insertResponse.error != null) {
-        throw Exception("Failed to save user data");
-      }
+      })
+          .select();
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const DashboardScreen()),
+        MaterialPageRoute(builder: (_) => const DashboardScreen()),
       );
     } on AuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.message}")),
+        SnackBar(content: Text("Auth Error: ${e.message}")),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Unexpected Error: ${e.toString()}")),
+        SnackBar(content: Text("Error: ${e.toString()}")),
       );
     } finally {
       setState(() => isLoading = false);

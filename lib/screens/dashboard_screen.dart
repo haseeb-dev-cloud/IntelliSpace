@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
 import 'ai_tools_screen.dart';
 import '../services/file_upload_service.dart';
+import '../services/recent_files_service.dart';
+import '../models/recent_file_model.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -125,18 +128,20 @@ class DashboardScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 actionButton(Icons.upload_file, "Upload", () async {
-                  final uploadService = FileUploadService();
-
-                  try {
-                    await uploadService.pickAndUploadFile();
-
-                    // Optional: Success message
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("File uploaded successfully!")),
-                    );
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Upload failed: $e")),
+                  final fileName = await FileUploadService().pickAndUploadFile();
+                  if (fileName != null) {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: Text("Success"),
+                        content: Text("✅ File '$fileName' uploaded successfully!"),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: Text("OK"),
+                          )
+                        ],
+                      ),
                     );
                   }
                 }),
@@ -170,36 +175,101 @@ class DashboardScreen extends StatelessWidget {
                 categoryBox(Icons.video_file, "Videos"),
               ],
             ),
-            const SizedBox(height: 24),
 
+
+            // RECENT FILES
+            const SizedBox(height: 24),
             const Text(
               "Recent Files",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 12),
-            Expanded(
-              child: ListView(
-                children: const [
-                  ListTile(
-                    leading: Icon(Icons.insert_drive_file, color: Colors.white),
-                    title: Text("Project_Proposal.pdf", style: TextStyle(color: Colors.white)),
-                    subtitle: Text("Modified 2 days ago", style: TextStyle(color: Colors.white70)),
-                    trailing: Icon(Icons.more_vert, color: Colors.white),
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.image, color: Colors.white),
-                    title: Text("screenshot.png", style: TextStyle(color: Colors.white)),
-                    subtitle: Text("Uploaded 3 days ago", style: TextStyle(color: Colors.white70)),
-                    trailing: Icon(Icons.more_vert, color: Colors.white),
-                  ),
-                ],
+
+            SizedBox(
+              height: 170,
+              child: FutureBuilder<List<RecentFile>>(
+                future: RecentFilesService().fetchRecentFiles(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  } else if (snapshot.hasError) {
+                    return const Center(
+                        child: Text('Error loading files',
+                            style: TextStyle(color: Colors.white)));
+                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const Center(
+                        child: Text('No recent files found',
+                            style: TextStyle(color: Colors.white70)));
+                  }
+
+                  final files = snapshot.data!;
+
+                  return ListView.builder(
+                    itemCount: files.length,
+                    itemBuilder: (context, index) {
+                      final file = files[index];
+
+                      return ListTile(
+                        leading: _getFileIcon(file.fileType),
+                        title: Text(file.filename,
+                            style: const TextStyle(color: Colors.white)),
+                        subtitle: Text(
+                          '${file.size} KB • ${_formatDateTime(file.uploadedAt)}',
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) async {
+                            if (value == 'remove') {
+                              await RecentFilesService().removeFileFromRecents(file.id);
+                              // Trigger UI rebuild
+                              (context as Element).markNeedsBuild();
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: 'remove',
+                              child: Text('Remove from recents'),
+                            ),
+                          ],
+                          icon: const Icon(Icons.more_vert, color: Colors.white),
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             ),
+
+
           ],
         ),
       ),
     );
   }
+  String _formatDateTime(DateTime dt) {
+    final date = "${dt.day}/${dt.month}/${dt.year}";
+    final time = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    return "$date • $time";
+  }
+
+  Icon _getFileIcon(String fileType) {
+    switch (fileType.toLowerCase()) {
+      case 'image':
+        return const Icon(Icons.image, color: Colors.blueAccent);
+      case 'video':
+        return const Icon(Icons.videocam, color: Colors.redAccent);
+      case 'pdf':
+        return const Icon(Icons.picture_as_pdf, color: Colors.deepOrange);
+      case 'doc':
+      case 'docx':
+        return const Icon(Icons.description, color: Colors.greenAccent);
+      default:
+        return const Icon(Icons.insert_drive_file, color: Colors.grey);
+    }
+  }
+
+
+
 
   // Updated actionButton with onTap
   Widget actionButton(IconData icon, String label, VoidCallback onTap) {
@@ -236,3 +306,60 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 }
+class UploadDialog extends StatefulWidget {
+  final File file;
+  final String fileName;
+
+  const UploadDialog({super.key, required this.file, required this.fileName});
+
+  @override
+  State<UploadDialog> createState() => _UploadDialogState();
+}
+
+class _UploadDialogState extends State<UploadDialog> {
+  bool isUploading = true;
+  String statusText = "Uploading...";
+
+  @override
+  void initState() {
+    super.initState();
+    uploadFile();
+  }
+
+  Future<void> uploadFile() async {
+    try {
+      await FileUploadService().pickAndUploadFile();
+      setState(() {
+        isUploading = false;
+        statusText = "✅ Upload Successful!";
+      });
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      setState(() {
+        isUploading = false;
+        statusText = "❌ Upload Failed";
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text("Uploading File"),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(widget.fileName, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          isUploading
+              ? const CircularProgressIndicator()
+              : const Icon(Icons.check_circle, color: Colors.green, size: 40),
+          const SizedBox(height: 16),
+          Text(statusText),
+        ],
+      ),
+    );
+  }
+}
+

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'all_files_screen.dart';
@@ -8,7 +7,7 @@ import 'ai_tools_screen.dart';
 import '../services/file_upload_service.dart';
 import '../services/recent_files_service.dart';
 import '../models/recent_file_model.dart';
-
+import 'package:intellispace/models/file_type_icon.dart';
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
@@ -214,7 +213,7 @@ class DashboardScreen extends StatelessWidget {
                       final file = files[index];
 
                       return ListTile(
-                        leading: _getFileIcon(file.fileType),
+                        leading: FileTypeIcon(filename: file.filename),
                         title: Text(file.filename,
                             style: const TextStyle(color: Colors.white)),
                         subtitle: Text(
@@ -256,21 +255,6 @@ class DashboardScreen extends StatelessWidget {
     return "$date • $time";
   }
 
-  Icon _getFileIcon(String fileType) {
-    switch (fileType.toLowerCase()) {
-      case 'image':
-        return const Icon(Icons.image, color: Colors.blueAccent);
-      case 'video':
-        return const Icon(Icons.videocam, color: Colors.redAccent);
-      case 'pdf':
-        return const Icon(Icons.picture_as_pdf, color: Colors.deepOrange);
-      case 'doc':
-      case 'docx':
-        return const Icon(Icons.description, color: Colors.greenAccent);
-      default:
-        return const Icon(Icons.insert_drive_file, color: Colors.grey);
-    }
-  }
 
 
 

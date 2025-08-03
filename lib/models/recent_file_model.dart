@@ -4,6 +4,7 @@ class RecentFile {
   final String fileType;
   final int size;
   final DateTime uploadedAt;
+  final String? path;
 
   RecentFile({
     required this.id,
@@ -11,6 +12,7 @@ class RecentFile {
     required this.fileType,
     required this.size,
     required this.uploadedAt,
+    this.path,
   });
 
   factory RecentFile.fromJson(Map<String, dynamic> json) {
@@ -20,6 +22,7 @@ class RecentFile {
       fileType: json['file_type'],
       size: json['size'],
       uploadedAt: DateTime.parse(json['uploaded_at']),
+      path: json['path'],
     );
   }
 }

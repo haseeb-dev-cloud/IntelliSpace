@@ -6,6 +6,7 @@ import '../models/all_files_model.dart';
 import '../services/supabase_service.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -53,6 +54,22 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
     return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
   }
 
+  Future<void> _shareFile(UserFile file) async {
+    try {
+      final url = await SupabaseService.getSignedUrl(file.path);
+      final response = await http.get(Uri.parse(url));
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${file.filename}');
+      await tempFile.writeAsBytes(response.bodyBytes);
+
+      await Share.shareXFiles([XFile(tempFile.path)], text: 'Shared from IntelliSpace');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sharing file: $e')),
+      );
+    }
+  }
+
   void _showFileOptions(UserFile file) {
     showModalBottomSheet(
       context: context,
@@ -66,8 +83,27 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 await SupabaseService.downloadFile(file.path, file.filename);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text("Download complete.")));
+                // Show download notification
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        const Icon(Icons.download_done, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text("Downloaded: ${file.filename}"),
+                      ],
+                    ),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Share'),
+              onTap: () async {
+                Navigator.pop(context);
+                await _shareFile(file);
               },
             ),
             ListTile(
@@ -82,9 +118,35 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
             ListTile(
               leading: const Icon(Icons.info),
               title: const Text('File Info'),
-              subtitle: Text(
-                "Size: ${formatBytes(file.size)}\nUploaded: ${formatDate(file.uploadedAt)}",
-              ),
+              onTap: () {
+                Navigator.pop(context);
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text("File Info"),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          file.filename,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 8),
+                        Text("Size: ${formatBytes(file.size)}"),
+                        const SizedBox(height: 4),
+                        Text("Uploaded: ${formatDate(file.uploadedAt)}"),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text("Close"),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         );
@@ -106,10 +168,13 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
         ),
       );
     } else if (file.fileType.startsWith('video/')) {
-      showDialog(
-        context: context,
-        builder: (_) => _VideoPlayerDialog(url: url),
-      );
+      // Download and open video file using system gallery/player
+      final response = await http.get(Uri.parse(url));
+      final dir = await getTemporaryDirectory();
+      final filePath = '${dir.path}/${file.filename}';
+      final localFile = File(filePath);
+      await localFile.writeAsBytes(response.bodyBytes);
+      await OpenFilex.open(filePath);
     } else if (file.filename.toLowerCase().endsWith('.pdf')) {
       showDialog(
         context: context,
@@ -134,9 +199,13 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = Color(0xFF0A3D62);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("All Files"),
+        backgroundColor: bgColor,
+        foregroundColor: Colors.white,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -160,51 +229,6 @@ class _AllFilesScreenState extends State<AllFilesScreen> {
             onTap: () => _openFile(file),
           );
         },
-      ),
-    );
-  }
-}
-
-class _VideoPlayerDialog extends StatefulWidget {
-  final String url;
-
-  const _VideoPlayerDialog({required this.url});
-
-  @override
-  State<_VideoPlayerDialog> createState() => _VideoPlayerDialogState();
-}
-
-class _VideoPlayerDialogState extends State<_VideoPlayerDialog> {
-  late VideoPlayerController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize().then((_) {
-        setState(() {});
-        _controller.play();
-      });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      content: SizedBox(
-        width: 300,
-        height: 400,
-        child: _controller.value.isInitialized
-            ? AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
-          child: VideoPlayer(_controller),
-        )
-            : const Center(child: CircularProgressIndicator()),
       ),
     );
   }

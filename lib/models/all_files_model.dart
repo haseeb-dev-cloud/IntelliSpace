@@ -17,7 +17,7 @@ class UserFile {
     return UserFile(
       path: json['path'],
       filename: json['filename'],
-      fileType: json['file_type'], // 👈 must match Supabase column
+      fileType: json['file_type'], //
       size: json['size'],
       uploadedAt: DateTime.parse(json['uploaded_at']),
     );

@@ -7,30 +7,59 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import '../models/recent_file_model.dart';
-import '../services/recent_files_service.dart';
-import '../services/supabase_service.dart';
+import '../models/all_files_model.dart';
 import '../models/file_type_icon.dart';
+import '../services/supabase_service.dart';
 
-class RecentFilesWidget extends StatefulWidget {
-  const RecentFilesWidget({Key? key}) : super(key: key);
+class SearchScreen extends StatefulWidget {
+  const SearchScreen({Key? key}) : super(key: key);
 
   @override
-  State<RecentFilesWidget> createState() => _RecentFilesWidgetState();
+  State<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _RecentFilesWidgetState extends State<RecentFilesWidget> {
-  String _formatDate(DateTime dt) {
-    return "${dt.day}/${dt.month}/${dt.year}";
+class _SearchScreenState extends State<SearchScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  List<UserFile> _allFiles = [];
+  List<UserFile> _searchResults = [];
+  bool _isLoading = false;
+  bool _hasSearched = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllFiles();
   }
 
-  String _formatDateTime(DateTime dt) {
-    final date = "${dt.day}/${dt.month}/${dt.year}";
-    final time = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-    return "$date • $time";
+  Future<void> _loadAllFiles() async {
+    setState(() => _isLoading = true);
+    final files = await SupabaseService.getAllFilesForUser();
+    setState(() {
+      _allFiles = files;
+      _isLoading = false;
+    });
   }
 
-  String _formatBytes(int bytes) {
+  void _performSearch(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _hasSearched = false;
+      });
+      return;
+    }
+
+    final results = _allFiles.where((file) {
+      return file.filename.toLowerCase().contains(query.toLowerCase());
+    }).toList();
+
+    setState(() {
+      _searchResults = results;
+      _hasSearched = true;
+    });
+  }
+
+  String formatBytes(int bytes) {
     const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
     var i = 0;
     double size = bytes.toDouble();
@@ -41,9 +70,13 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
     return '${size.toStringAsFixed(2)} ${suffixes[i]}';
   }
 
-  Future<void> _shareFile(RecentFile file) async {
+  String formatDate(DateTime dt) {
+    return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
+  }
+
+  Future<void> _shareFile(UserFile file) async {
     try {
-      final url = await SupabaseService.getSignedUrl(file.path ?? '');
+      final url = await SupabaseService.getSignedUrl(file.path);
       final response = await http.get(Uri.parse(url));
       final tempDir = await getTemporaryDirectory();
       final tempFile = File('${tempDir.path}/${file.filename}');
@@ -57,7 +90,7 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
     }
   }
 
-  void _showFileOptions(RecentFile file) {
+  void _showFileOptions(UserFile file) {
     showModalBottomSheet(
       context: context,
       builder: (_) {
@@ -69,7 +102,7 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
               title: const Text('Download'),
               onTap: () async {
                 Navigator.pop(context);
-                await SupabaseService.downloadFile(file.path ?? '', file.filename);
+                await SupabaseService.downloadFile(file.path, file.filename);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Row(
@@ -116,8 +149,9 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
                 );
 
                 if (confirmed == true) {
-                  await SupabaseService.deleteFile(file.path ?? '');
-                  _refreshRecentFiles();
+                  await SupabaseService.deleteFile(file.path);
+                  _loadAllFiles(); // Refresh files
+                  _performSearch(_searchController.text); // Refresh search results
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text("File deleted successfully.")),
                   );
@@ -142,9 +176,9 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         const SizedBox(height: 8),
-                        Text("Size: ${_formatBytes(file.size)}"),
+                        Text("Size: ${formatBytes(file.size)}"),
                         const SizedBox(height: 4),
-                        Text("Uploaded: ${_formatDateTime(file.uploadedAt)}"),
+                        Text("Uploaded: ${formatDate(file.uploadedAt)}"),
                       ],
                     ),
                     actions: [
@@ -157,24 +191,14 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
                 );
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.remove_circle),
-              title: const Text('Remove from recents'),
-              onTap: () async {
-                Navigator.pop(context);
-                await RecentFilesService().removeFileFromRecents(file.id);
-                _refreshRecentFiles();
-              },
-            ),
           ],
         );
       },
     );
   }
 
-  // Fixed preview logic - same as browse section
-  Future<void> _openFile(RecentFile file) async {
-    final url = await SupabaseService.getSignedUrl(file.path ?? '');
+  Future<void> _openFile(UserFile file) async {
+    final url = await SupabaseService.getSignedUrl(file.path);
     final ext = file.fileType.toLowerCase();
 
     // Check if it's an image
@@ -196,7 +220,7 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
         ),
       );
     }
-    // Check if it's a video - USE SAME LOGIC AS BROWSE SECTION
+    // Check if it's a video - USE SAME LOGIC AS CATEGORIES SECTION
     else if (['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm'].contains(ext)) {
       try {
         final response = await http.get(Uri.parse(url));
@@ -247,76 +271,124 @@ class _RecentFilesWidgetState extends State<RecentFilesWidget> {
     }
   }
 
-  void _refreshRecentFiles() {
-    setState(() {
-      // This will trigger FutureBuilder to rebuild
-    });
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = Color(0xFF0A3D62);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Search Files"),
+        backgroundColor: bgColor,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          // Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: "Search files by name...",
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          _performSearch("");
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.grey[100],
+              ),
+              onChanged: _performSearch,
+            ),
+          ),
+          
+          // Results
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : !_hasSearched
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.search, size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              "Search your files",
+                              style: TextStyle(fontSize: 18, color: Colors.grey),
+                            ),
+                            Text(
+                              "Enter a filename to start searching",
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _searchResults.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.search_off, size: 64, color: Colors.grey),
+                                SizedBox(height: 16),
+                                Text(
+                                  "No files found",
+                                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                                ),
+                                Text(
+                                  "Try a different search term",
+                                  style: TextStyle(color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _searchResults.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final file = _searchResults[index];
+                              return Card(
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ListTile(
+                                  leading: FileTypeIcon(filename: file.filename),
+                                  title: Text(
+                                    file.filename,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    "${formatBytes(file.size)} • ${formatDate(file.uploadedAt)}",
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.more_vert),
+                                    onPressed: () => _showFileOptions(file),
+                                  ),
+                                  onTap: () => _openFile(file),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "Recent Files",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: FutureBuilder<List<RecentFile>>(
-            future: RecentFilesService().fetchRecentFiles(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              } else if (snapshot.hasError) {
-                return const Center(
-                    child: Text('Error loading files',
-                        style: TextStyle(color: Colors.white)));
-              } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return const Center(
-                    child: Text('No recent files found',
-                        style: TextStyle(color: Colors.white70)));
-              }
-
-              final files = snapshot.data!;
-
-              return ListView.builder(
-                itemCount: files.length,
-                itemBuilder: (context, index) {
-                  final file = files[index];
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white10,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: FileTypeIcon(filename: file.filename),
-                        title: Text(
-                          file.filename.length > 25
-                              ? '${file.filename.substring(0, 25)}...'
-                              : file.filename,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
-                          onPressed: () => _showFileOptions(file),
-                        ),
-                        onTap: () => _openFile(file),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 }

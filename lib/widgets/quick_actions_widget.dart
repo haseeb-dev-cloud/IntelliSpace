@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../screens/all_files_screen.dart';
 import '../screens/ai_tools_screen.dart';
+import '../screens/downloads_screen.dart';
+import '../screens/search_screen.dart';
 import '../services/file_upload_service.dart';
 
 class QuickActionsWidget extends StatelessWidget {
@@ -46,9 +48,10 @@ class QuickActionsWidget extends StatelessWidget {
             );
           }
         }),
-        _actionButton(Icons.search, "Search", () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Search functionality coming soon!")),
+        _actionButton(Icons.download, "Downloads", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const DownloadsScreen()),
           );
         }),
         _actionButton(Icons.folder_open, "Browse", () {

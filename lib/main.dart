@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+
+// Services
+import 'package:intellispace/services/theme_service.dart';
 
 // Screens
 import 'package:intellispace/screens/splash_screen.dart';
@@ -24,14 +28,18 @@ class IntelliSpaceApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'IntelliSpace',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
+    return ChangeNotifierProvider<ThemeService>(
+      create: (context) => ThemeService(),
+      child: Consumer<ThemeService>(
+        builder: (context, themeService, child) {
+          return MaterialApp(
+            title: 'IntelliSpace',
+            debugShowCheckedModeBanner: false,
+            theme: themeService.theme,
+            home: const SplashScreen(), // Change to LoginScreen() or DashboardScreen() if needed
+          );
+        },
       ),
-      home: const SplashScreen(), // Change to LoginScreen() or DashboardScreen() if needed
     );
   }
 }

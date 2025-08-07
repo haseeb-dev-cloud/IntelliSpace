@@ -12,6 +12,7 @@ import '../models/all_files_model.dart';
 import '../models/file_type_icon.dart';
 import '../services/supabase_service.dart';
 import '../services/folders_service.dart';
+import '../services/ai_service.dart';
 import '../services/theme_service.dart';
 import 'package:provider/provider.dart' as provider_package;
 
@@ -19,11 +20,15 @@ class DuplicateGroup {
   final String filename;
   final int size;
   final List<UserFile> files;
+  final String type; // 'exact' or 'ai'
+  final double? similarityScore;
 
   DuplicateGroup({
     required this.filename,
     required this.size,
     required this.files,
+    required this.type,
+    this.similarityScore,
   });
 }
 
@@ -31,39 +36,60 @@ class DuplicatesScreen extends StatefulWidget {
   const DuplicatesScreen({Key? key}) : super(key: key);
 
   @override
-  State<DuplicatesScreen> createState() => _DuplicatesScreenState();
+  State<DuplicatesScreen> createState() => DuplicatesScreenState();
 }
 
-class _DuplicatesScreenState extends State<DuplicatesScreen> {
-  List<DuplicateGroup> _duplicateGroups = [];
-  bool _isLoading = true;
+class DuplicatesScreenState extends State<DuplicatesScreen> with TickerProviderStateMixin {
+  List<DuplicateGroup> _exactDuplicates = [];
+  List<DuplicateGroup> _aiDuplicates = [];
+  bool _isLoadingExact = true;
+  bool _isLoadingAi = false;
+  bool _hasTriedAiAnalysis = false;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _findDuplicateFiles();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChanged);
+    _findExactDuplicates();
   }
 
-  Future<void> _findDuplicateFiles() async {
+  @override
+  void dispose() {
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (mounted) {
+      setState(() {}); // Trigger rebuild to show/hide refresh button
+    }
+  }
+
+  Future<void> _findExactDuplicates() async {
+    if (!mounted) return;
+
+    setState(() => _isLoadingExact = true);
+
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoadingExact = false);
         return;
       }
 
-      // Get all user files
       final response = await Supabase.instance.client
           .from('user_files')
           .select('*')
           .eq('user_id', user.id);
 
-      final List<UserFile> allFiles = 
-          (response as List).map((e) => UserFile.fromJson(e)).toList();
+      final List<UserFile> allFiles =
+      (response as List).map((e) => UserFile.fromJson(e)).toList();
 
-      // Group files by filename and size
       Map<String, List<UserFile>> fileGroups = {};
-      
+
       for (final file in allFiles) {
         final key = '${file.filename}_${file.size}';
         if (fileGroups.containsKey(key)) {
@@ -73,7 +99,6 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         }
       }
 
-      // Filter groups that have more than one file (duplicates)
       List<DuplicateGroup> duplicates = [];
       fileGroups.forEach((key, group) {
         if (group.length > 1) {
@@ -81,17 +106,75 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
             filename: group.first.filename,
             size: group.first.size,
             files: group,
+            type: 'exact',
           ));
         }
       });
 
-      setState(() {
-        _duplicateGroups = duplicates;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _exactDuplicates = duplicates;
+          _isLoadingExact = false;
+        });
+      }
     } catch (e) {
-      print('Error finding duplicates: $e');
-      setState(() => _isLoading = false);
+      print('Error finding exact duplicates: $e');
+      if (mounted) setState(() => _isLoadingExact = false);
+    }
+  }
+
+  Future<void> _findAiDuplicates() async {
+    if (_isLoadingAi || !mounted) return;
+
+    setState(() {
+      _isLoadingAi = true;
+      _hasTriedAiAnalysis = true;
+    });
+
+    try {
+      final aiGroups = await AiService.findAiBasedDuplicates();
+
+      List<DuplicateGroup> duplicates = aiGroups.map((group) => DuplicateGroup(
+        filename: group.files.first.filename,
+        size: group.files.first.size,
+        files: group.files,
+        type: 'ai',
+        similarityScore: group.similarityScore,
+      )).toList();
+
+      if (mounted) {
+        setState(() {
+          _aiDuplicates = duplicates;
+          _isLoadingAi = false;
+        });
+      }
+
+      // Show completion message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                duplicates.isEmpty
+                    ? 'No similar content found. Your files are unique!'
+                    : 'Found ${duplicates.length} groups of similar content'
+            ),
+            backgroundColor: duplicates.isEmpty ? Colors.green : Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error finding AI duplicates: $e');
+
+      if (mounted) {
+        setState(() => _isLoadingAi = false);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error analyzing files: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -120,9 +203,11 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
 
       await Share.shareXFiles([XFile(tempFile.path)], text: 'Shared from IntelliSpace');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sharing file: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sharing file: $e')),
+        );
+      }
     }
   }
 
@@ -142,18 +227,20 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 await SupabaseService.downloadFile(file.path, file.filename);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.download_done, color: Colors.white),
-                        const SizedBox(width: 8),
-                        Text("Downloaded: ${file.filename}"),
-                      ],
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.download_done, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Text("Downloaded: ${file.filename}"),
+                        ],
+                      ),
+                      duration: const Duration(seconds: 3),
                     ),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
+                  );
+                }
               },
             ),
             ListTile(
@@ -187,9 +274,12 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
                   ),
                 );
 
-                if (confirmed == true) {
+                if (confirmed == true && mounted) {
                   await SupabaseService.deleteFile(file.path);
-                  _findDuplicateFiles(); // Refresh the list
+                  _findExactDuplicates();
+                  if (_hasTriedAiAnalysis) {
+                    _findAiDuplicates();
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text("File deleted successfully.")),
                   );
@@ -248,7 +338,6 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
     final url = await SupabaseService.getSignedUrl(file.path);
     final ext = file.fileType.toLowerCase();
 
-    // Check if it's an image
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff'].contains(ext)) {
       showDialog(
         context: context,
@@ -266,9 +355,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
           ],
         ),
       );
-    }
-    // Check if it's a video
-    else if (['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm'].contains(ext)) {
+    } else if (['mp4', 'mov', 'avi', 'mkv', 'wmv', 'flv', 'webm'].contains(ext)) {
       try {
         final response = await http.get(Uri.parse(url));
         final dir = await getTemporaryDirectory();
@@ -277,13 +364,13 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         await localFile.writeAsBytes(response.bodyBytes);
         await OpenFilex.open(filePath);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening video: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error opening video: $e')),
+          );
+        }
       }
-    }
-    // Check if it's a PDF
-    else if (ext == 'pdf') {
+    } else if (ext == 'pdf') {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
@@ -300,9 +387,7 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
           ],
         ),
       );
-    }
-    // For other file types, download and open
-    else {
+    } else {
       try {
         final response = await http.get(Uri.parse(url));
         final dir = await getTemporaryDirectory();
@@ -311,9 +396,11 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
         await localFile.writeAsBytes(response.bodyBytes);
         await OpenFilex.open(filePath);
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening file: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error opening file: $e')),
+          );
+        }
       }
     }
   }
@@ -340,23 +427,216 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      // Sort by upload date and keep the most recent
+    if (confirmed == true && mounted) {
       final sortedFiles = List<UserFile>.from(group.files)
         ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
 
-      // Delete all but the first (most recent)
-      for (int i = 1; i < sortedFiles.length; i++) {
-        await SupabaseService.deleteFile(sortedFiles[i].path);
+      try {
+        for (int i = 1; i < sortedFiles.length; i++) {
+          await SupabaseService.deleteFile(sortedFiles[i].path);
+        }
+
+        _findExactDuplicates();
+        if (_hasTriedAiAnalysis) {
+          _findAiDuplicates();
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Deleted ${sortedFiles.length - 1} duplicate files"),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error deleting files: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildDuplicatesList(List<DuplicateGroup> duplicates, String type) {
+    final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
+
+    if (duplicates.isEmpty) {
+      String title, subtitle;
+      IconData icon;
+      Color color;
+
+      if (type == 'exact') {
+        title = "No exact duplicates found!";
+        subtitle = "Your storage is optimized";
+        icon = Icons.check_circle;
+        color = Colors.green;
+      } else {
+        if (!_hasTriedAiAnalysis) {
+          title = "AI Content Analysis";
+          subtitle = "Tap the refresh button to analyze your files\nfor similar content using AI";
+          icon = Icons.psychology;
+          color = themeService.subtextColor;
+        } else {
+          title = "No similar content found!";
+          subtitle = "Content analysis complete";
+          icon = Icons.check_circle;
+          color = Colors.green;
+        }
       }
 
-      _findDuplicateFiles(); // Refresh the list
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Deleted ${sortedFiles.length - 1} duplicate files"),
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 64, color: color),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: TextStyle(fontSize: 18, color: themeService.textColor),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: themeService.subtextColor),
+            ),
+          ],
         ),
       );
     }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: duplicates.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 24),
+      itemBuilder: (context, groupIndex) {
+        final group = duplicates[groupIndex];
+        final groupColor = type == 'exact' ? Colors.orange : Colors.blue;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: themeService.cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: groupColor.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: groupColor.withOpacity(0.1),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      type == 'exact' ? Icons.copy : Icons.psychology,
+                      color: groupColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            group.filename,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: themeService.textColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            type == 'exact'
+                                ? "${group.files.length} exact duplicates • ${_formatBytes(group.size)} each"
+                                : "${group.files.length} similar files • ${(group.similarityScore! * 100).toStringAsFixed(1)}% similarity",
+                            style: TextStyle(
+                              color: themeService.subtextColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _deleteAllButOne(group),
+                      icon: const Icon(Icons.delete_sweep, color: Colors.red, size: 16),
+                      label: const Text(
+                        "Clean Up",
+                        style: TextStyle(color: Colors.red, fontSize: 12),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Files in group
+              ...group.files.asMap().entries.map((entry) {
+                final index = entry.key;
+                final file = entry.value;
+                final isLast = index == group.files.length - 1;
+
+                return Container(
+                  decoration: BoxDecoration(
+                    border: isLast ? null : Border(
+                      bottom: BorderSide(
+                        color: themeService.subtextColor.withOpacity(0.1),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: ListTile(
+                    leading: FileTypeIcon(filename: file.filename),
+                    title: Text(
+                      file.filename,
+                      style: TextStyle(color: themeService.textColor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Uploaded: ${_formatDate(file.uploadedAt)}",
+                          style: TextStyle(
+                            color: themeService.subtextColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          "Path: ${file.path}",
+                          style: TextStyle(
+                            color: themeService.subtextColor,
+                            fontSize: 10,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(Icons.more_vert, color: themeService.textColor),
+                      onPressed: () => _showFileOptions(file),
+                    ),
+                    onTap: () => _openFile(file),
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -369,153 +649,67 @@ class _DuplicatesScreenState extends State<DuplicatesScreen> {
             title: const Text("Duplicate Files"),
             backgroundColor: themeService.bgColor,
             foregroundColor: Colors.white,
-          ),
-          body: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _duplicateGroups.isEmpty
-              ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle, size: 64, color: Colors.green),
-                const SizedBox(height: 16),
-                Text(
-                  "No duplicate files found!",
-                  style: TextStyle(fontSize: 18, color: themeService.textColor),
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(
+                  icon: Icon(Icons.copy),
+                  text: "Exact Duplicates",
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  "Your storage is optimized",
-                  style: TextStyle(color: themeService.subtextColor),
+                Tab(
+                  icon: Icon(Icons.psychology),
+                  text: "AI Similar Content",
                 ),
               ],
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
             ),
-          )
-              : ListView.separated(
-            padding: const EdgeInsets.all(12),
-            itemCount: _duplicateGroups.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 24),
-            itemBuilder: (context, groupIndex) {
-              final group = _duplicateGroups[groupIndex];
-              return Container(
-                decoration: BoxDecoration(
-                  color: themeService.cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.orange.withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Group header
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(12),
-                          topRight: Radius.circular(12),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.copy, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  group.filename,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: themeService.textColor,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  "${group.files.length} duplicates • ${_formatBytes(group.size)} each",
-                                  style: TextStyle(
-                                    color: themeService.subtextColor,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: () => _deleteAllButOne(group),
-                            icon: const Icon(Icons.delete_sweep, color: Colors.red, size: 16),
-                            label: const Text(
-                              "Clean Up",
-                              style: TextStyle(color: Colors.red, fontSize: 12),
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            ),
-                          ),
-                        ],
-                      ),
+            actions: [
+              if (_tabController.index == 1)
+                IconButton(
+                  icon: _isLoadingAi
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
-                    // Files in group
-                    ...group.files.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final file = entry.value;
-                      final isLast = index == group.files.length - 1;
-                      
-                      return Container(
-                        decoration: BoxDecoration(
-                          border: isLast ? null : Border(
-                            bottom: BorderSide(
-                              color: themeService.subtextColor.withOpacity(0.1),
-                              width: 1,
-                            ),
-                          ),
-                        ),
-                        child: ListTile(
-                          leading: FileTypeIcon(filename: file.filename),
-                          title: Text(
-                            file.filename,
-                            style: TextStyle(color: themeService.textColor),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Uploaded: ${_formatDate(file.uploadedAt)}",
-                                style: TextStyle(
-                                  color: themeService.subtextColor,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Text(
-                                "Path: ${file.path}",
-                                style: TextStyle(
-                                  color: themeService.subtextColor,
-                                  fontSize: 10,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(Icons.more_vert, color: themeService.textColor),
-                            onPressed: () => _showFileOptions(file),
-                          ),
-                          onTap: () => _openFile(file),
-                        ),
-                      );
-                    }).toList(),
+                  )
+                      : const Icon(Icons.refresh),
+                  onPressed: _isLoadingAi ? null : _findAiDuplicates,
+                  tooltip: 'Analyze with AI',
+                ),
+            ],
+          ),
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              // Exact Duplicates Tab
+              _isLoadingExact
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildDuplicatesList(_exactDuplicates, 'exact'),
+
+              // AI Similar Content Tab
+              _isLoadingAi
+                  ? const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text("Analyzing content with AI..."),
+                    SizedBox(height: 8),
+                    Text(
+                      "This may take a few minutes",
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   ],
                 ),
-              );
-            },
+              )
+                  : _buildDuplicatesList(_aiDuplicates, 'ai'),
+            ],
           ),
         );
       },

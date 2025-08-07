@@ -22,10 +22,37 @@ class CategoriesWidget extends StatelessWidget {
               color: Colors.white10,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Icon(icon, size: 32, color: Colors.white),
+            child: Stack(
+              children: [
+                Icon(icon, size: 32, color: Colors.white),
+                if (fileType == 'pdf') // Add AI indicator for PDFs
+                  Positioned(
+                    right: -4,
+                    top: -4,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: const BoxDecoration(
+                        color: Colors.blue,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.smart_toy,
+                        size: 10,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           Text(label, style: const TextStyle(color: Colors.white)),
+          if (fileType == 'pdf')
+            const Text(
+              'AI Powered',
+              style: TextStyle(color: Colors.blue, fontSize: 10),
+            ),
         ],
       ),
     );

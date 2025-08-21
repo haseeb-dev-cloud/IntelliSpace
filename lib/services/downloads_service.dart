@@ -1,3 +1,4 @@
+// lib/services/downloads_service.dart
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -36,15 +37,47 @@ class DownloadedFile {
 }
 
 class DownloadsService {
-  static const String _downloadsKey = 'downloaded_files';
+  static String? _currentUserId;
+
+  /// Set the current user ID - call this after login
+  static void setCurrentUser(String userId) {
+    _currentUserId = userId;
+  }
+
+  /// Clear current user - call this on logout
+  static void clearCurrentUser() {
+    _currentUserId = null;
+  }
+
+  /// Get user-specific downloads key
+  static String get _downloadsKey {
+    if (_currentUserId == null) {
+      throw Exception('No user logged in. Call DownloadsService.setCurrentUser() first.');
+    }
+    return 'downloaded_files_$_currentUserId';
+  }
+
+  /// Get user-specific downloads directory
+  static Future<Directory> getDownloadsDirectory() async {
+    if (_currentUserId == null) {
+      throw Exception('No user logged in. Call DownloadsService.setCurrentUser() first.');
+    }
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final userDownloadsDir = Directory('${appDir.path}/Users/$_currentUserId/Downloads');
+    if (!await userDownloadsDir.exists()) {
+      await userDownloadsDir.create(recursive: true);
+    }
+    return userDownloadsDir;
+  }
 
   static Future<void> addDownloadedFile(String filename, String localPath, int size) async {
     final prefs = await SharedPreferences.getInstance();
     final downloads = await getDownloadedFiles();
-    
+
     // Check if file already exists in downloads list
     final existingIndex = downloads.indexWhere((file) => file.filename == filename);
-    
+
     final downloadedFile = DownloadedFile(
       filename: filename,
       localPath: localPath,
@@ -65,14 +98,18 @@ class DownloadsService {
   }
 
   static Future<List<DownloadedFile>> getDownloadedFiles() async {
+    if (_currentUserId == null) {
+      return []; // Return empty list if no user is logged in
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final jsonString = prefs.getString(_downloadsKey);
-    
+
     if (jsonString == null) return [];
-    
+
     final jsonList = json.decode(jsonString) as List;
     final downloads = jsonList.map((json) => DownloadedFile.fromJson(json)).toList();
-    
+
     // Filter out files that no longer exist on disk
     final existingDownloads = <DownloadedFile>[];
     for (final download in downloads) {
@@ -80,37 +117,37 @@ class DownloadsService {
         existingDownloads.add(download);
       }
     }
-    
+
     // Update the stored list if any files were removed
     if (existingDownloads.length != downloads.length) {
       final jsonList = existingDownloads.map((file) => file.toJson()).toList();
       await prefs.setString(_downloadsKey, json.encode(jsonList));
     }
-    
+
     // Sort by download date (newest first)
     existingDownloads.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
-    
+
     return existingDownloads;
   }
 
   static Future<void> deleteDownloadedFile(String filename) async {
     final prefs = await SharedPreferences.getInstance();
     final downloads = await getDownloadedFiles();
-    
+
     final fileToDelete = downloads.firstWhere(
-      (file) => file.filename == filename,
+          (file) => file.filename == filename,
       orElse: () => throw Exception('File not found in downloads'),
     );
-    
+
     // Delete the actual file
     final file = File(fileToDelete.localPath);
     if (await file.exists()) {
       await file.delete();
     }
-    
+
     // Remove from downloads list
     downloads.removeWhere((file) => file.filename == filename);
-    
+
     final jsonList = downloads.map((file) => file.toJson()).toList();
     await prefs.setString(_downloadsKey, json.encode(jsonList));
   }
@@ -118,7 +155,7 @@ class DownloadsService {
   static Future<void> clearAllDownloads() async {
     final prefs = await SharedPreferences.getInstance();
     final downloads = await getDownloadedFiles();
-    
+
     // Delete all downloaded files
     for (final download in downloads) {
       final file = File(download.localPath);
@@ -126,8 +163,27 @@ class DownloadsService {
         await file.delete();
       }
     }
-    
+
     // Clear the downloads list
     await prefs.remove(_downloadsKey);
+  }
+
+  /// Clean up data for a specific user (call on account deletion)
+  static Future<void> clearUserData(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Clear SharedPreferences for this user
+    await prefs.remove('downloaded_files_$userId');
+
+    // Delete user's downloads directory
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final userDownloadsDir = Directory('${appDir.path}/Users/$userId/Downloads');
+      if (await userDownloadsDir.exists()) {
+        await userDownloadsDir.delete(recursive: true);
+      }
+    } catch (e) {
+      print('Error deleting user downloads directory: $e');
+    }
   }
 }

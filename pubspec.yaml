@@ -41,7 +41,6 @@ dependencies:
   syncfusion_flutter_pdfviewer: ^24.2.8
   intl: ^0.18.1
   open_filex: ^4.3.2
-  pdfx: ^2.4.0
   share_plus: ^7.2.1
   provider: ^6.0.5
   shared_preferences: ^2.2.2

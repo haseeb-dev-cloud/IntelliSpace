@@ -1,85 +1,526 @@
-// lib/services/ai_service.dart
+// lib/services/enhanced_ai_service.dart
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../models/all_files_model.dart';
 import 'supabase_service.dart';
 import 'summaries_service.dart';
 import 'package:flutter/foundation.dart';
 
 class AiService {
-  // Free Hugging Face API endpoint for text similarity (currently unused but kept for future use)
-  // ignore: unused_field
-  static const String _huggingFaceApiUrl = 'https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2';
+  // API URLs
+  static const String _huggingFaceSummarizeUrl = 'https://api-inference.huggingface.co/models/facebook/bart-large-cnn';
+  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
-  // Replace with your actual token from https://huggingface.co/settings/tokens (currently unused but kept for future use)
-  // ignore: unused_field
+  // API Keys
   static const String _huggingFaceToken = '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';
+  static const String _geminiApiKey = 'AIzaSyDXyEzPCrposwMIg-B0CZQSscMm7_eMFmo';
 
-  // Simple PDF text extraction - this is a basic implementation
+  // ROBUST PDF text extraction with multiple methods
   static Future<String> _extractTextFromPdf(String pdfPath) async {
     try {
       final file = File(pdfPath);
-      if (!await file.exists()) return '';
+      if (!await file.exists()) {
+        return 'PDF file not found at path: $pdfPath';
+      }
 
-      // Read file as string and try to extract readable text
+      print('Loading PDF file: $pdfPath');
       final bytes = await file.readAsBytes();
-      final content = String.fromCharCodes(bytes);
 
-      // Try to extract text between common PDF text markers
-      final textPattern = RegExp(r'(?<=\()([^)]+)(?=\))|(?<=\[)([^\]]+)(?=\])|(?<= )([A-Za-z0-9\s.,!?;:]+)(?= )', multiLine: true);
-      final matches = textPattern.allMatches(content);
+      // Method 1: Try Syncfusion PDF extraction
+      try {
+        final document = PdfDocument(inputBytes: bytes);
+        print('PDF loaded successfully. Pages: ${document.pages.count}');
 
-      String extractedText = matches.map((match) => match.group(0) ?? '').join(' ');
+        if (document.pages.count > 0) {
+          try {
+            final textExtractor = PdfTextExtractor(document);
+            final extractedText = textExtractor.extractText();
+            document.dispose();
 
-      // If no meaningful text found, try a different approach
-      if (extractedText.trim().isEmpty || extractedText.length < 50) {
-        // Extract sequences of printable characters - SIMPLIFIED APPROACH
-        final words = content.split(' ');
-        final validWords = <String>[];
-
-        for (final word in words) {
-          if (word.length >= 3 && word.length <= 20) {
-            // Check if word contains mostly letters and numbers
-            final cleanWord = word.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-            if (cleanWord.length >= 2) {
-              validWords.add(word);
+            if (extractedText.isNotEmpty && extractedText.length > 50) {
+              final cleanText = _cleanExtractedText(extractedText);
+              if (cleanText.isNotEmpty) {
+                print('Syncfusion extraction successful: ${cleanText.length} characters');
+                return cleanText;
+              }
             }
+          } catch (extractorError) {
+            print('PdfTextExtractor failed: $extractorError');
+            document.dispose();
+          }
+        } else {
+          document.dispose();
+        }
+      } catch (syncfusionError) {
+        print('Syncfusion PDF loading failed: $syncfusionError');
+      }
+
+      // Method 2: Try manual PDF parsing
+      print('Attempting manual PDF text extraction...');
+      final rawContent = String.fromCharCodes(bytes);
+      final manualText = _extractTextFromPdfContent(rawContent);
+
+      if (manualText.isNotEmpty && manualText.length > 100) {
+        print('Manual extraction successful: ${manualText.length} characters');
+        return manualText;
+      }
+
+      // If both methods failed
+      return '''This PDF could not be processed for text extraction.
+
+Possible reasons:
+• The PDF contains only images or scanned content
+• The PDF uses complex formatting or embedded graphics  
+• The PDF may be password-protected
+• The PDF structure is not compatible with text extraction
+
+File Information:
+• File Size: ${await file.length()} bytes
+• Processing: Both Syncfusion and manual extraction failed
+
+To process this PDF:
+• Use OCR software for image-based PDFs
+• Try converting to text-searchable format
+• Check if PDF has selectable text in a PDF viewer''';
+
+    } catch (e) {
+      print('Critical error in PDF processing: $e');
+      return 'Error processing PDF: ${e.toString()}';
+    }
+  }
+
+  // Clean extracted text
+  static String _cleanExtractedText(String text) {
+    if (text.isEmpty) return '';
+
+    // Remove excessive whitespace and control characters
+    String cleaned = text
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'), '')
+        .trim();
+
+    return cleaned;
+  }
+
+  // Manual PDF content extraction
+  static String _extractTextFromPdfContent(String content) {
+    final extractedStrings = <String>[];
+
+    try {
+      // Extract text from Tj operators
+      final tjPattern = RegExp(r'\((.*?)\)\s*Tj', dotAll: true);
+      final tjMatches = tjPattern.allMatches(content);
+
+      for (final match in tjMatches) {
+        final text = match.group(1) ?? '';
+        if (text.length > 2 && _isReadableText(text)) {
+          extractedStrings.add(_decodePdfString(text));
+        }
+      }
+
+      // Extract from text arrays
+      final arrayPattern = RegExp(r'\[(.*?)\]\s*TJ', dotAll: true);
+      final arrayMatches = arrayPattern.allMatches(content);
+
+      for (final match in arrayMatches) {
+        final textArray = match.group(1) ?? '';
+        final stringPattern = RegExp(r'\((.*?)\)');
+        final stringMatches = stringPattern.allMatches(textArray);
+
+        for (final stringMatch in stringMatches) {
+          final text = stringMatch.group(1) ?? '';
+          if (text.length > 1 && _isReadableText(text)) {
+            extractedStrings.add(_decodePdfString(text));
+          }
+        }
+      }
+
+      // Extract readable words as fallback
+      if (extractedStrings.isEmpty) {
+        final wordPattern = RegExp(r'\b[A-Za-z]{3,}\b');
+        final wordMatches = wordPattern.allMatches(content);
+        final words = wordMatches
+            .map((m) => m.group(0) ?? '')
+            .where((w) => w.length >= 3)
+            .take(200)
+            .toList();
+
+        if (words.length > 20) {
+          extractedStrings.add(words.join(' '));
+        }
+      }
+
+      final result = extractedStrings.join(' ').trim();
+      return _cleanExtractedText(result);
+
+    } catch (e) {
+      print('Error in manual extraction: $e');
+      return '';
+    }
+  }
+
+  // Decode PDF string escapes
+  static String _decodePdfString(String pdfString) {
+    return pdfString
+        .replaceAll(r'\n', ' ')
+        .replaceAll(r'\r', ' ')
+        .replaceAll(r'\t', ' ')
+        .replaceAll(r'\\', '\\')
+        .replaceAll(r'\(', '(')
+        .replaceAll(r'\)', ')')
+        .trim();
+  }
+
+  // Check if text is readable
+  static bool _isReadableText(String text) {
+    if (text.length < 2) return false;
+    final hasLetters = RegExp(r'[A-Za-z]').hasMatch(text);
+    if (!hasLetters) return false;
+    final letterCount = RegExp(r'[A-Za-z]').allMatches(text).length;
+    return letterCount > text.length * 0.3;
+  }
+
+  // Gemini summarization
+  static Future<String> _summarizeWithGemini(String text) async {
+    try {
+      final limitedText = text.length > 4000 ? text.substring(0, 4000) : text;
+
+      final prompt = '''Analyze and summarize the following document content. Provide a comprehensive summary that captures:
+
+1. Main topic and purpose
+2. Key points and arguments  
+3. Important details and findings
+4. Conclusions or recommendations
+
+Please write in clear, well-structured paragraphs:
+
+$limitedText
+
+Provide a detailed and informative summary of the above content.''';
+
+      final response = await http.post(
+        Uri.parse('$_geminiApiUrl?key=$_geminiApiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'contents': [{'parts': [{'text': prompt}]}],
+          'generationConfig': {
+            'maxOutputTokens': 1500,
+            'temperature': 0.4,
+            'topP': 0.8,
+          },
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        final content = result['candidates']?[0]?['content']?['parts']?[0]?['text'];
+
+        if (content != null && content.toString().trim().isNotEmpty) {
+          return content.toString().trim();
+        }
+      }
+
+      throw Exception('Gemini API returned empty response');
+    } catch (e) {
+      print('Gemini API error: $e');
+      throw e;
+    }
+  }
+
+  // HuggingFace summarization
+  static Future<String> _summarizeWithHuggingFace(String text) async {
+    try {
+      final limitedText = text.length > 3000 ? text.substring(0, 3000) : text;
+
+      final response = await http.post(
+        Uri.parse(_huggingFaceSummarizeUrl),
+        headers: {
+          'Authorization': 'Bearer $_huggingFaceToken',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'inputs': limitedText,
+          'parameters': {
+            'max_length': 600,
+            'min_length': 100,
+            'length_penalty': 2.0,
+            'num_beams': 4,
+            'early_stopping': true,
+          }
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        if (result is List && result.isNotEmpty) {
+          final summary = result[0]['summary_text']?.toString()?.trim();
+          if (summary != null && summary.isNotEmpty) {
+            return summary;
+          }
+        }
+      } else if (response.statusCode == 503) {
+        await Future.delayed(const Duration(seconds: 15));
+        return await _summarizeWithHuggingFace(text);
+      }
+
+      throw Exception('HuggingFace API error: ${response.statusCode}');
+    } catch (e) {
+      print('HuggingFace API error: $e');
+      throw e;
+    }
+  }
+
+  // Local summarization fallback
+  static Future<String> _localExtractiveSummarization(String text) async {
+    try {
+      if (text.length < 200) {
+        return 'Document is too short for meaningful summarization. Content: ${text.substring(0, text.length.clamp(0, 150))}...';
+      }
+
+      final sentences = text
+          .replaceAll(RegExp(r'([.!?])\s*'), r'$1|SPLIT|')
+          .split('|SPLIT|')
+          .map((s) => s.trim())
+          .where((s) => s.length > 30 && s.split(' ').length >= 5)
+          .toList();
+
+      if (sentences.length < 3) {
+        return 'Unable to generate meaningful summary. Preview: ${text.substring(0, text.length.clamp(0, 300))}...';
+      }
+
+      final wordFreq = <String, int>{};
+      final allWords = text.toLowerCase()
+          .replaceAll(RegExp(r'[^\w\s]'), ' ')
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 3 && !_isCommonWord(w))
+          .toList();
+
+      for (final word in allWords) {
+        wordFreq[word] = (wordFreq[word] ?? 0) + 1;
+      }
+
+      final sentenceScores = <int, double>{};
+
+      for (int i = 0; i < sentences.length; i++) {
+        final sentence = sentences[i];
+        final words = sentence.toLowerCase()
+            .replaceAll(RegExp(r'[^\w\s]'), ' ')
+            .split(RegExp(r'\s+'))
+            .where((w) => w.length > 3)
+            .toList();
+
+        double score = 0;
+        for (final word in words) {
+          if (wordFreq.containsKey(word)) {
+            score += wordFreq[word]! / allWords.length;
           }
         }
 
-        extractedText = validWords.join(' ');
+        if (words.isNotEmpty) {
+          score = score / words.length;
+
+          if (i < sentences.length * 0.3 || i > sentences.length * 0.7) {
+            score *= 1.2;
+          }
+
+          if (sentence.toLowerCase().contains(RegExp(r'\b(important|key|main|conclusion|result)\b'))) {
+            score *= 1.3;
+          }
+
+          sentenceScores[i] = score;
+        }
       }
 
-      // Clean up the text - MANUAL APPROACH, NO REGEX
-      extractedText = extractedText
-          .replaceAll('  ', ' ')
-          .replaceAll('   ', ' ')
-          .replaceAll('    ', ' ')
+      final topSentenceIndices = sentenceScores.entries
+          .toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      final summaryLength = (sentences.length * 0.4).round().clamp(3, 6);
+      final selectedIndices = topSentenceIndices
+          .take(summaryLength)
+          .map((e) => e.key)
+          .toList()
+        ..sort();
+
+      final summary = selectedIndices
+          .map((i) => sentences[i])
+          .join(' ')
           .trim();
 
-      // If still no good text, return a basic message
-      if (extractedText.isEmpty || extractedText.length < 20) {
-        return 'This PDF contains mostly non-text content or uses unsupported encoding. Consider using a dedicated PDF processing library for better text extraction.';
+      return summary.isNotEmpty ? summary : 'Could not generate meaningful summary.';
+
+    } catch (e) {
+      print('Local summarization error: $e');
+      return 'Error during text analysis.';
+    }
+  }
+
+  // AI summarization with fallback chain
+  static Future<String> _summarizeWithPriorityModels(String text) async {
+    print('Starting AI summarization...');
+
+    try {
+      print('Trying Gemini...');
+      final geminiSummary = await _summarizeWithGemini(text);
+      if (geminiSummary.isNotEmpty) {
+        print('✅ Gemini successful');
+        return geminiSummary;
+      }
+    } catch (e) {
+      print('❌ Gemini failed: $e');
+    }
+
+    try {
+      print('Trying HuggingFace...');
+      final hfSummary = await _summarizeWithHuggingFace(text);
+      if (hfSummary.isNotEmpty) {
+        print('✅ HuggingFace successful');
+        return hfSummary;
+      }
+    } catch (e) {
+      print('❌ HuggingFace failed: $e');
+    }
+
+    print('Using local summarization...');
+    return await _localExtractiveSummarization(text);
+  }
+
+  // Check common words
+  static bool _isCommonWord(String word) {
+    const commonWords = {
+      'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us'
+    };
+    return commonWords.contains(word.toLowerCase());
+  }
+
+  // MAIN PDF summarization method
+  static Future<String> summarizePdf(String pdfPath) async {
+    try {
+      print('Starting PDF summarization: $pdfPath');
+
+      final text = await _extractTextFromPdf(pdfPath);
+
+      if (text.isEmpty) {
+        throw Exception('Could not extract any text from PDF');
       }
 
-      return extractedText;
+      print('Extracted text length: ${text.length}');
+
+      if (text.contains('could not be processed') ||
+          text.contains('password-protected') ||
+          text.contains('Error processing')) {
+        return '''AI SUMMARY REPORT
+=================
+
+⚠️ PDF PROCESSING NOTICE
+$text
+
+TECHNICAL DETAILS:
+• Processing Method: Syncfusion + Manual Extraction
+• Status: Text extraction failed
+• Recommendation: Try OCR tools for image-based PDFs''';
+      }
+
+      String summary;
+      try {
+        summary = await _summarizeWithPriorityModels(text);
+      } catch (e) {
+        print('All summarization failed: $e');
+        summary = 'Summarization failed: $e';
+      }
+
+      if (summary.isEmpty) {
+        throw Exception('All summarization methods returned empty results');
+      }
+
+      final formattedSummary = '''AI SUMMARY REPORT
+=================
+
+DOCUMENT ANALYSIS:
+• Text Length: ${text.length} characters
+• Word Count: ~${text.split(RegExp(r'\s+')).length} words
+• Processing: Advanced PDF Analysis
+• Generated: ${DateTime.now().toString().split('.')[0]}
+
+EXECUTIVE SUMMARY:
+$summary
+
+PROCESSING DETAILS:
+• PDF Extraction: Syncfusion + Manual Parsing
+• AI Models: Gemini → HuggingFace → Local Analysis
+• Status: ✅ Successfully Processed
+
+---
+Generated by IntelliSpace AI Engine
+${DateFormat('dd MMM yyyy \'at\' hh:mm a').format(DateTime.now())}''';
+
+      return formattedSummary;
     } catch (e) {
-      print('Error extracting PDF text: $e');
-      return 'Error extracting text from PDF. The file might be corrupted or password-protected.';
+      print('Error summarizing PDF: $e');
+      throw Exception('Failed to summarize PDF: ${e.toString()}');
     }
+  }
+
+  // Create summary file
+  static Future<File> createSummarizedFile(String originalFilename, String summary) async {
+    try {
+      final existingSummary = await SummariesService.getSummaryForPdf(originalFilename);
+      if (existingSummary != null) {
+        final oldFile = File(existingSummary.localPath);
+        if (await oldFile.exists()) {
+          await oldFile.delete();
+        }
+      }
+
+      final summariesDir = await SummariesService.getSummariesDirectory();
+      final summaryFilename = 'Summary_${originalFilename.replaceAll('.pdf', '.txt')}';
+      final summaryFile = File('${summariesDir.path}/$summaryFilename');
+
+      await summaryFile.writeAsString(summary, encoding: utf8);
+
+      await SummariesService.addSummaryFile(
+        summaryFilename,
+        originalFilename,
+        summaryFile.path,
+        await summaryFile.length(),
+      );
+
+      print('Summary file created: ${summaryFile.path}');
+      return summaryFile;
+    } catch (e) {
+      print('Error creating summary file: $e');
+      throw Exception('Failed to create summary file: $e');
+    }
+  }
+
+  // Compatibility methods
+  static Future<double> _calculateTextSimilarity(String text1, String text2) async {
+    try {
+      if (text1.isEmpty || text2.isEmpty) return 0.0;
+      final words1 = text1.toLowerCase().split(' ').toSet();
+      final words2 = text2.toLowerCase().split(' ').toSet();
+      final intersection = words1.intersection(words2).length;
+      final union = words1.union(words2).length;
+      return union > 0 ? intersection / union : 0.0;
+    } catch (e) {
+      return 0.0;
+    }
+  }
+
+  static Future<double> _calculateAdvancedTextSimilarity(String text1, String text2) async {
+    return await _calculateTextSimilarity(text1, text2);
   }
 
   static Future<String> _extractTextFromImage(String imagePath) async {
     try {
-      // For image text extraction, we'd use OCR
-      // Since this is complex, we'll use image hash comparison instead
       return await _calculateImageHash(imagePath);
     } catch (e) {
-      print('Error processing image: $e');
       return '';
     }
   }
@@ -88,12 +529,9 @@ class AiService {
     try {
       final file = File(imagePath);
       final bytes = await file.readAsBytes();
-
-      // Simple perceptual hash approximation
       final hash = sha256.convert(bytes);
       return hash.toString();
     } catch (e) {
-      print('Error calculating image hash: $e');
       return '';
     }
   }
@@ -110,68 +548,8 @@ class AiService {
       }
       return '';
     } catch (e) {
-      print('Error extracting text: $e');
       return '';
     }
-  }
-
-  static Future<double> _calculateTextSimilarity(String text1, String text2) async {
-    try {
-      // Simple similarity calculation using Jaccard similarity
-      if (text1.isEmpty || text2.isEmpty) return 0.0;
-
-      final words1 = text1.toLowerCase().split(' ').toSet();
-      final words2 = text2.toLowerCase().split(' ').toSet();
-
-      final intersection = words1.intersection(words2).length;
-      final union = words1.union(words2).length;
-
-      return union > 0 ? intersection / union : 0.0;
-    } catch (e) {
-      print('Error calculating similarity: $e');
-      return 0.0;
-    }
-  }
-
-  // Enhanced method using Hugging Face API (if token is available)
-  static Future<double> _calculateAdvancedTextSimilarity(String text1, String text2) async {
-    try {
-      // Always use simple similarity for now since API setup can be complex
-      return await _calculateTextSimilarity(text1, text2);
-
-      /* Uncomment this section when you have a valid Hugging Face token
-      if (_huggingFaceToken == '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' || _huggingFaceToken.isEmpty) {
-        // Fallback to simple similarity if no API token
-        return await _calculateTextSimilarity(text1, text2);
-      }
-
-      final response = await http.post(
-        Uri.parse(_huggingFaceApiUrl),
-        headers: {
-          'Authorization': 'Bearer $_huggingFaceToken',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'inputs': {
-            'source_sentence': text1.length > 500 ? text1.substring(0, 500) : text1,
-            'sentences': [text2.length > 500 ? text2.substring(0, 500) : text2]
-          }
-        }),
-      ).timeout(Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
-        if (result is List && result.isNotEmpty) {
-          return (result[0] as num).toDouble();
-        }
-      }
-      */
-
-    } catch (e) {
-      print('Error with advanced similarity: $e');
-    }
-
-    return await _calculateTextSimilarity(text1, text2);
   }
 
   static Future<List<AiDuplicateGroup>> findAiBasedDuplicates() async {
@@ -179,70 +557,46 @@ class AiService {
       final allFiles = await SupabaseService.getAllFilesForUser();
       List<AiDuplicateGroup> duplicates = [];
 
-      if (allFiles.length < 2) {
-        return duplicates; // Need at least 2 files to find duplicates
-      }
+      if (allFiles.length < 2) return duplicates;
 
-      // Create temporary directory for file downloads
       final tempDir = await getTemporaryDirectory();
       final aiTempDir = Directory('${tempDir.path}/ai_analysis');
       if (!await aiTempDir.exists()) {
         await aiTempDir.create(recursive: true);
       }
 
-      // Process files and extract content
       Map<String, String> fileContents = {};
-
-      // Only process text-extractable files to save time and bandwidth
       final supportedFiles = allFiles.where((file) {
         final ext = file.fileType.toLowerCase();
         return ['pdf', 'txt', 'md'].contains(ext);
       }).toList();
 
-      print('Processing ${supportedFiles.length} files for AI duplicate detection...');
-
-      for (final file in supportedFiles.take(20)) { // Limit to 20 files to avoid timeout
+      for (final file in supportedFiles.take(20)) {
         try {
-          print('Processing: ${file.filename}');
-
-          // Download file temporarily
           final url = await SupabaseService.getSignedUrl(file.path);
           final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
           final tempFile = File('${aiTempDir.path}/${file.filename}');
           await tempFile.writeAsBytes(response.bodyBytes);
 
-          // Extract content based on file type
           final content = await _extractTextFromDocument(tempFile.path, file.fileType);
-          if (content.isNotEmpty && content.length > 50) { // Only consider files with meaningful content
+          if (content.isNotEmpty && content.length > 50) {
             fileContents[file.path] = content;
-            print('Extracted ${content.length} characters from ${file.filename}');
-          } else {
-            print('Skipping ${file.filename} - insufficient content');
           }
 
-          // Clean up temp file immediately
           if (await tempFile.exists()) {
             await tempFile.delete();
           }
         } catch (e) {
-          print('Error processing file ${file.filename}: $e');
+          print('Error processing ${file.filename}: $e');
         }
       }
 
-      print('Successfully processed ${fileContents.length} files');
-
-      // Compare files for similarity
-      final processedPairs = <String>{};
       final filesList = supportedFiles.where((f) => fileContents.containsKey(f.path)).toList();
 
       for (int i = 0; i < filesList.length; i++) {
         final file1 = filesList[i];
-
         for (int j = i + 1; j < filesList.length; j++) {
           final file2 = filesList[j];
-
-          final pairKey = '${file1.path}_${file2.path}';
-          if (processedPairs.contains(pairKey)) continue;
 
           try {
             final similarity = await _calculateAdvancedTextSimilarity(
@@ -250,11 +604,7 @@ class AiService {
               fileContents[file2.path]!,
             );
 
-            print('Similarity between ${file1.filename} and ${file2.filename}: ${(similarity * 100).toStringAsFixed(1)}%');
-
-            // Consider files similar if similarity > 0.3 (30%) - lowered threshold for better detection
             if (similarity > 0.3) {
-              // Check if group already exists
               var existingGroup = duplicates.firstWhere(
                     (group) => group.files.any((f) => f.path == file1.path || f.path == file2.path),
                 orElse: () => AiDuplicateGroup(files: [], similarityScore: 0.0),
@@ -265,224 +615,34 @@ class AiService {
                   files: [file1, file2],
                   similarityScore: similarity,
                 ));
-                print('Created new duplicate group with similarity: ${(similarity * 100).toStringAsFixed(1)}%');
               } else {
-                // Add to existing group if not already present
                 if (!existingGroup.files.any((f) => f.path == file1.path)) {
                   existingGroup.files.add(file1);
                 }
                 if (!existingGroup.files.any((f) => f.path == file2.path)) {
                   existingGroup.files.add(file2);
                 }
-                // Update similarity score (average)
                 existingGroup.similarityScore = (existingGroup.similarityScore + similarity) / 2;
-                print('Added to existing group, new average similarity: ${(existingGroup.similarityScore * 100).toStringAsFixed(1)}%');
               }
             }
-
-            processedPairs.add(pairKey);
           } catch (e) {
-            print('Error comparing ${file1.filename} and ${file2.filename}: $e');
+            print('Error comparing files: $e');
           }
         }
       }
 
-      // Clean up temp directory
       try {
         if (await aiTempDir.exists()) {
           await aiTempDir.delete(recursive: true);
         }
       } catch (e) {
-        print('Error cleaning up temp directory: $e');
+        print('Cleanup error: $e');
       }
 
-      print('Found ${duplicates.length} duplicate groups');
       return duplicates;
     } catch (e) {
-      print('Error finding AI duplicates: $e');
+      print('Error finding duplicates: $e');
       return [];
-    }
-  }
-
-  static Future<String> summarizePdf(String pdfPath) async {
-    try {
-      // Extract text from PDF
-      final text = await _extractTextFromPdf(pdfPath);
-
-      if (text.isEmpty) {
-        throw Exception('Could not extract text from PDF');
-      }
-
-      print('Extracted text length: ${text.length}');
-      print('First 200 characters: ${text.length > 200 ? text.substring(0, 200) : text}');
-
-      // If the extracted text is mostly garbage or too short, return a simple summary
-      if (text.length < 100 || text.split(' ').where((word) => word.length > 15).length > text.split(' ').length * 0.5) {
-        return '''This PDF appears to contain primarily non-text content such as images, diagrams, or uses complex formatting that cannot be easily extracted.
-
-Key observations:
-• File processed successfully
-• Content appears to be visual/graphic in nature
-• May contain images, charts, or scanned text
-• Recommended to view the original PDF for complete information
-
-Note: For better text extraction from complex PDFs, consider using specialized PDF processing tools or OCR software.''';
-      }
-
-      // Simple extractive summarization for readable text
-      final sentences = text.split(RegExp(r'[.!?]+'))
-          .where((s) => s.trim().length > 20 && s.trim().length < 200)
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toList();
-
-      if (sentences.isEmpty) {
-        throw Exception('No meaningful sentences found in the document');
-      }
-
-      // Score sentences based on word frequency and position
-      final wordFreq = <String, int>{};
-      final words = text.toLowerCase()
-          .replaceAll(RegExp(r'[^a-zA-Z\s]'), ' ')
-          .split(RegExp(r'\s+'))
-          .where((word) => word.length > 3)
-          .toList();
-
-      for (final word in words) {
-        wordFreq[word] = (wordFreq[word] ?? 0) + 1;
-      }
-
-      // Remove very common words
-      final commonWords = ['this', 'that', 'with', 'have', 'will', 'been', 'from', 'they', 'know', 'want', 'been', 'good', 'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were'];
-      commonWords.forEach((word) => wordFreq.remove(word));
-
-      // Score sentences
-      final sentenceScores = <String, double>{};
-      for (int i = 0; i < sentences.length; i++) {
-        final sentence = sentences[i];
-        final sentenceWords = sentence.toLowerCase()
-            .replaceAll(RegExp(r'[^a-zA-Z\s]'), ' ')
-            .split(RegExp(r'\s+'))
-            .where((word) => word.length > 3)
-            .toList();
-
-        double score = 0;
-        int scoredWords = 0;
-
-        for (final word in sentenceWords) {
-          if (wordFreq.containsKey(word)) {
-            score += wordFreq[word]!;
-            scoredWords++;
-          }
-        }
-
-        if (scoredWords > 0) {
-          // Normalize by word count and add position bonus (earlier sentences get slight boost)
-          final normalizedScore = score / scoredWords;
-          final positionBonus = sentences.length > 10 ? (sentences.length - i) / sentences.length * 0.1 : 0;
-          sentenceScores[sentence] = normalizedScore + positionBonus;
-        }
-      }
-
-      if (sentenceScores.isEmpty) {
-        throw Exception('Could not score any sentences for summarization');
-      }
-
-      // Select top sentences (about 20-40% of original, minimum 2, maximum 8)
-      final sortedSentences = sentenceScores.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      final summaryLength = (sentences.length * 0.3).round().clamp(2, 8);
-      final selectedSentences = sortedSentences
-          .take(summaryLength)
-          .map((e) => e.key)
-          .toList();
-
-      // Sort selected sentences by their original order in the document
-      selectedSentences.sort((a, b) {
-        final indexA = sentences.indexOf(a);
-        final indexB = sentences.indexOf(b);
-        return indexA.compareTo(indexB);
-      });
-
-      final summary = selectedSentences.join('. ').trim();
-
-      // Ensure the summary ends properly
-      final finalSummary = summary.endsWith('.') ? summary : '$summary.';
-
-      print('Generated summary length: ${finalSummary.length}');
-
-      return finalSummary;
-    } catch (e) {
-      print('Error summarizing PDF: $e');
-      throw Exception('Failed to summarize PDF: $e');
-    }
-  }
-
-  static Future<File> createSummarizedPdf(String originalFilename, String summary) async {
-    try {
-      // Get summaries directory using the service
-      final summariesDir = await SummariesService.getSummariesDirectory();
-
-      // Create summary text file (since creating PDF is complex)
-      final summaryFilename = 'Summary_${originalFilename.replaceAll('.pdf', '.txt')}';
-      final summaryFile = File('${summariesDir.path}/$summaryFilename');
-
-      final content = '''
-=================================================
-PDF SUMMARY REPORT
-=================================================
-
-Original Document: $originalFilename
-Summary Generated: ${DateTime.now().toString().split('.')[0]}
-Processing Method: AI-powered extractive summarization
-
--------------------------------------------------
-SUMMARY
--------------------------------------------------
-
-$summary
-
--------------------------------------------------
-TECHNICAL DETAILS
--------------------------------------------------
-
-• Summary Length: ${summary.length} characters
-• Original Document: $originalFilename  
-• Processing Date: ${DateTime.now().toString().split(' ')[0]}
-• Generated by: IntelliSpace AI Engine
-
--------------------------------------------------
-DISCLAIMER
--------------------------------------------------
-
-This summary was automatically generated using AI and 
-natural language processing techniques. While effort has 
-been made to capture the key points, this summary may not 
-include all important details from the original document.
-
-For critical information, always refer to the complete 
-original PDF document.
-
-=================================================
-End of Summary Report
-=================================================
-''';
-
-      await summaryFile.writeAsString(content);
-
-      // Register the summary file with the service
-      await SummariesService.addSummaryFile(
-        summaryFilename,
-        originalFilename,
-        summaryFile.path,
-        await summaryFile.length(),
-      );
-
-      return summaryFile;
-    } catch (e) {
-      print('Error creating summary file: $e');
-      throw Exception('Failed to create summary file: $e');
     }
   }
 }

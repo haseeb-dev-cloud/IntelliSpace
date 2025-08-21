@@ -14,6 +14,7 @@ import '../models/all_files_model.dart';
 import '../services/supabase_service.dart';
 import '../services/ai_service.dart';
 import '../services/downloads_service.dart';
+import '../services/compression_service.dart';
 
 class CategoryFilesScreen extends StatefulWidget {
   final String fileType;
@@ -114,6 +115,114 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
     }
   }
 
+  Future<void> _compressFile(UserFile file) async {
+    if (!mounted) return;
+
+    try {
+      // Show progress dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text("Compressing file..."),
+              const SizedBox(height: 8),
+              Text(
+                "Applying compression to: ${file.filename}",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Download file temporarily for compression
+      final url = await SupabaseService.getSignedUrl(file.path);
+      final response = await http.get(Uri.parse(url));
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${file.filename}');
+      await tempFile.writeAsBytes(response.bodyBytes);
+
+      // Compress the file
+      final compressedFile = await CompressionService.compressFile(
+        tempFile.path,
+        file.filename,
+      );
+
+      // Clean up temp file
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      // Close progress dialog
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+
+      // Show simple success snackbar instead of dialog
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("File compressed successfully!"),
+                      Text(
+                        "Saved ${compressedFile.compressionRatio.toStringAsFixed(1)}% space • Added to Archives",
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: "VIEW",
+              textColor: Colors.white,
+              onPressed: () {
+                // Navigate to archives screen or open compressed file viewer
+                Navigator.pushNamed(context, '/archives');
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close progress dialog if open
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Error compressing file: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _summarizePdf(UserFile file) async {
     if (!mounted) return;
 
@@ -151,14 +260,7 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
       final summary = await AiService.summarizePdf(tempFile.path);
 
       // Create summary file
-      final summaryFile = await AiService.createSummarizedPdf(file.filename, summary);
-
-      // Add to downloads service
-      await DownloadsService.addDownloadedFile(
-        summaryFile.path.split('/').last,
-        summaryFile.path,
-        await summaryFile.length(),
-      );
+      final summaryFile = await AiService.createSummarizedFile(file.filename, summary);
 
       // Clean up temp file
       if (await tempFile.exists()) {
@@ -166,72 +268,62 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
       }
 
       // Close progress dialog
-      if (mounted) Navigator.pop(context);
-
-      // Show success dialog with options
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Summary Generated"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Successfully summarized: ${file.filename}"),
-                const SizedBox(height: 8),
-                const Text(
-                  "Summary saved to: Summaries folder",
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await OpenFilex.open(summaryFile.path);
-                },
-                child: const Text("Open Summary"),
-              ),
-            ],
-          ),
-        );
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
       }
 
-      // Show success snackbar
+      // Show simple success snackbar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
+                const Icon(Icons.smart_toy, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Text("PDF summarized and saved to Downloads"),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("AI Summary generated successfully!"),
+                      Text(
+                        "Summary saved to Archives • ${file.filename}",
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 4),
             action: SnackBarAction(
-              label: "Open",
-              onPressed: () => OpenFilex.open(summaryFile.path),
+              label: "VIEW",
+              textColor: Colors.white,
+              onPressed: () {
+                // Navigate to archives screen
+                Navigator.pushNamed(context, '/archives');
+              },
             ),
-            duration: const Duration(seconds: 5),
           ),
         );
       }
     } catch (e) {
       // Close progress dialog if open
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error summarizing PDF: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Error summarizing PDF: $e')),
+              ],
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -253,28 +345,58 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
               title: const Text('Download'),
               onTap: () async {
                 Navigator.pop(context);
-                await SupabaseService.downloadFile(file.path, file.filename);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Row(
-                        children: [
-                          const Icon(Icons.download_done, color: Colors.white),
-                          const SizedBox(width: 8),
-                          Text("Downloaded: ${file.filename}"),
-                        ],
+
+                try {
+                  await SupabaseService.downloadFile(file.path, file.filename);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.download_done, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text("Downloaded: ${file.filename}"),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: Colors.green,
+                        duration: const Duration(seconds: 3),
                       ),
-                      duration: const Duration(seconds: 3),
-                    ),
-                  );
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Row(
+                          children: [
+                            const Icon(Icons.error, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text('Download failed: $e')),
+                          ],
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
+              },
+            ),
+            // Add compression option for all file types
+            ListTile(
+              leading: const Icon(Icons.compress, color: Colors.green),
+              title: const Text('Compress File', style: TextStyle(color: Colors.green)),
+              onTap: () {
+                Navigator.pop(context);
+                _compressFile(file);
               },
             ),
             if (isPdf) // Add summarize option for PDFs
               ListTile(
                 leading: const Icon(Icons.summarize, color: Colors.blue),
                 title: const Text('Summarize with AI', style: TextStyle(color: Colors.blue)),
-                subtitle: const Text('Generate AI summary', style: TextStyle(fontSize: 12, color: Colors.grey)),
                 onTap: () {
                   Navigator.pop(context);
                   _summarizePdf(file);
@@ -331,37 +453,39 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
                   context: context,
                   builder: (_) => AlertDialog(
                     title: const Text("File Info"),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          file.filename,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        const SizedBox(height: 8),
-                        Text("Size: ${formatBytes(file.size)}"), // Changed from file.size to file.fileSize
-                        const SizedBox(height: 4),
-                        Text("Uploaded: ${formatDate(file.uploadedAt)}"),
-                        if (isPdf) ...[
+                    content: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            file.filename,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
                           const SizedBox(height: 8),
-                          const Divider(),
-                          const Row(
-                            children: [
-                              Icon(Icons.smart_toy, size: 16, color: Colors.blue),
-                              SizedBox(width: 4),
-                              Text(
-                                "AI Features Available",
-                                style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          const Text(
-                            "• AI Summarization",
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
-                          ),
+                          Text("Size: ${formatBytes(file.size)}"),
+                          const SizedBox(height: 4),
+                          Text("Uploaded: ${formatDate(file.uploadedAt)}"),
+                          if (isPdf) ...[
+                            const SizedBox(height: 8),
+                            const Divider(),
+                            const Row(
+                              children: [
+                                Icon(Icons.smart_toy, size: 16, color: Colors.blue),
+                                SizedBox(width: 4),
+                                Text(
+                                  "AI Features Available",
+                                  style: TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const Text(
+                              "• AI Summarization",
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                     actions: [
                       TextButton(
@@ -390,18 +514,48 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
       });
       showDialog(
         context: context,
-        builder: (_) => AlertDialog(
-          content: SizedBox(
-            width: 300,
-            height: 400,
-            child: Image.network(url, fit: BoxFit.contain),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+        builder: (_) => Dialog(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppBar(
+                  title: Text(
+                    file.filename,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  automaticallyImplyLeading: false,
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                Flexible(
+                  child: InteractiveViewer(
+                    child: Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(Icons.error, size: 64, color: Colors.red),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -427,30 +581,40 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
     else if (ext == 'pdf') {
       showDialog(
         context: context,
-        builder: (_) => AlertDialog(
-          content: SizedBox(
-            width: 300,
-            height: 400,
-            child: SfPdfViewer.network(url),
+        builder: (_) => Dialog(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+            ),
+            child: Column(
+              children: [
+                AppBar(
+                  title: Text(
+                    file.filename,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  automaticallyImplyLeading: false,
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.summarize),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _summarizePdf(file);
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                Expanded(
+                  child: SfPdfViewer.network(url),
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                _summarizePdf(file);
-              },
-              icon: const Icon(Icons.summarize, size: 16),
-              label: const Text('Summarize'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
         ),
       );
     }
@@ -481,7 +645,12 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            Text('${widget.fileType.toUpperCase()} Files'),
+            Expanded(
+              child: Text(
+                '${widget.fileType.toUpperCase()} Files',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             if (widget.fileType == 'pdf') ...[
               const SizedBox(width: 8),
               Container(
@@ -575,7 +744,11 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${formatBytes(file.size)} • ${formatDate(file.uploadedAt)}'), // Changed from file.size to file.fileSize
+                  Text(
+                    '${formatBytes(file.size)} • ${formatDate(file.uploadedAt)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   if (isPdf)
                     const Text(
                       'AI features available',

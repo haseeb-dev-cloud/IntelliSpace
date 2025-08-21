@@ -41,12 +41,34 @@ class SummaryFile {
 }
 
 class SummariesService {
-  static const String _summariesKey = 'summary_files';
+  static String? _currentUserId;
 
-  /// Get the summaries directory path
+  /// Set the current user ID - call this after login
+  static void setCurrentUser(String userId) {
+    _currentUserId = userId;
+  }
+
+  /// Clear current user - call this on logout
+  static void clearCurrentUser() {
+    _currentUserId = null;
+  }
+
+  /// Get user-specific summaries key
+  static String get _summariesKey {
+    if (_currentUserId == null) {
+      throw Exception('No user logged in. Call SummariesService.setCurrentUser() first.');
+    }
+    return 'summary_files_$_currentUserId';
+  }
+
+  /// Get the user-specific summaries directory path
   static Future<Directory> getSummariesDirectory() async {
+    if (_currentUserId == null) {
+      throw Exception('No user logged in. Call SummariesService.setCurrentUser() first.');
+    }
+
     final appDir = await getApplicationDocumentsDirectory();
-    final summariesDir = Directory('${appDir.path}/Summaries');
+    final summariesDir = Directory('${appDir.path}/Users/$_currentUserId/Summaries');
     if (!await summariesDir.exists()) {
       await summariesDir.create(recursive: true);
     }
@@ -55,19 +77,19 @@ class SummariesService {
 
   /// Add a new summary file to the registry
   static Future<void> addSummaryFile(
-    String filename,
-    String originalPdfName,
-    String localPath,
-    int size,
-  ) async {
+      String filename,
+      String originalPdfName,
+      String localPath,
+      int size,
+      ) async {
     final prefs = await SharedPreferences.getInstance();
     final summaries = await getSummaryFiles();
-    
+
     // Check if summary already exists for this PDF
     final existingIndex = summaries.indexWhere(
-      (summary) => summary.originalPdfName == originalPdfName,
+          (summary) => summary.originalPdfName == originalPdfName,
     );
-    
+
     final summaryFile = SummaryFile(
       filename: filename,
       originalPdfName: originalPdfName,
@@ -94,14 +116,18 @@ class SummariesService {
 
   /// Get all summary files
   static Future<List<SummaryFile>> getSummaryFiles() async {
+    if (_currentUserId == null) {
+      return []; // Return empty list if no user is logged in
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final jsonString = prefs.getString(_summariesKey);
-    
+
     if (jsonString == null) return [];
-    
+
     final jsonList = json.decode(jsonString) as List;
     final summaries = jsonList.map((json) => SummaryFile.fromJson(json)).toList();
-    
+
     // Filter out files that no longer exist on disk
     final existingSummaries = <SummaryFile>[];
     for (final summary in summaries) {
@@ -109,16 +135,16 @@ class SummariesService {
         existingSummaries.add(summary);
       }
     }
-    
+
     // Update the stored list if any files were removed
     if (existingSummaries.length != summaries.length) {
       final jsonList = existingSummaries.map((file) => file.toJson()).toList();
       await prefs.setString(_summariesKey, json.encode(jsonList));
     }
-    
+
     // Sort by creation date (newest first)
     existingSummaries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    
+
     return existingSummaries;
   }
 
@@ -126,21 +152,21 @@ class SummariesService {
   static Future<void> deleteSummaryFile(String originalPdfName) async {
     final prefs = await SharedPreferences.getInstance();
     final summaries = await getSummaryFiles();
-    
+
     final fileToDelete = summaries.firstWhere(
-      (file) => file.originalPdfName == originalPdfName,
+          (file) => file.originalPdfName == originalPdfName,
       orElse: () => throw Exception('Summary file not found'),
     );
-    
+
     // Delete the actual file
     final file = File(fileToDelete.localPath);
     if (await file.exists()) {
       await file.delete();
     }
-    
+
     // Remove from summaries list
     summaries.removeWhere((file) => file.originalPdfName == originalPdfName);
-    
+
     final jsonList = summaries.map((file) => file.toJson()).toList();
     await prefs.setString(_summariesKey, json.encode(jsonList));
   }
@@ -149,7 +175,7 @@ class SummariesService {
   static Future<void> clearAllSummaries() async {
     final prefs = await SharedPreferences.getInstance();
     final summaries = await getSummaryFiles();
-    
+
     // Delete all summary files
     for (final summary in summaries) {
       final file = File(summary.localPath);
@@ -157,7 +183,7 @@ class SummariesService {
         await file.delete();
       }
     }
-    
+
     // Clear the summaries list
     await prefs.remove(_summariesKey);
   }
@@ -167,7 +193,7 @@ class SummariesService {
     final summaries = await getSummaryFiles();
     try {
       return summaries.firstWhere(
-        (summary) => summary.originalPdfName == pdfName,
+            (summary) => summary.originalPdfName == pdfName,
       );
     } catch (e) {
       return null;
@@ -206,5 +232,24 @@ class SummariesService {
       i++;
     }
     return '${size.toStringAsFixed(2)} ${suffixes[i]}';
+  }
+
+  /// Clean up data for a specific user (call on account deletion)
+  static Future<void> clearUserData(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Clear SharedPreferences for this user
+    await prefs.remove('summary_files_$userId');
+
+    // Delete user's summaries directory
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final userSummariesDir = Directory('${appDir.path}/Users/$userId/Summaries');
+      if (await userSummariesDir.exists()) {
+        await userSummariesDir.delete(recursive: true);
+      }
+    } catch (e) {
+      print('Error deleting user summaries directory: $e');
+    }
   }
 }

@@ -18,6 +18,7 @@ import '../models/file_type_icon.dart';
 import '../services/theme_service.dart';
 import 'package:provider/provider.dart' as provider_package;
 import 'duplicates_screen.dart';
+import '../services/compression_service.dart';
 
 class AllFilesScreen extends StatefulWidget {
   const AllFilesScreen({Key? key}) : super(key: key);
@@ -78,7 +79,161 @@ class AllFilesScreenState extends State<AllFilesScreen> {
       );
     }
   }
+  Future<void> _compressFile(UserFile file) async {
+    if (!mounted) return;
 
+    try {
+      // Show progress dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text("Compressing file..."),
+              const SizedBox(height: 8),
+              Text(
+                "Applying advanced compression to: ${file.filename}",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Download file temporarily for compression
+      final url = await SupabaseService.getSignedUrl(file.path);
+      final response = await http.get(Uri.parse(url));
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${file.filename}');
+      await tempFile.writeAsBytes(response.bodyBytes);
+
+      // Compress the file
+      final compressedFile = await CompressionService.compressFile(
+        tempFile.path,
+        file.filename,
+      );
+
+      // Clean up temp file
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      // Close progress dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show success dialog with compression stats
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.compress, color: Colors.green),
+                const SizedBox(width: 8),
+                const Text("File Compressed"),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Successfully compressed: ${file.filename}"),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Original Size:"),
+                    Text(formatBytes(compressedFile.originalSize)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Compressed Size:"),
+                    Text(formatBytes(compressedFile.compressedSize),
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Space Saved:"),
+                    Text("${compressedFile.compressionRatio.toStringAsFixed(1)}%",
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    "Method: ${compressedFile.compressionMethod}",
+                    style: const TextStyle(fontSize: 12, color: Colors.green),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await OpenFilex.open(compressedFile.localPath);
+                },
+                child: const Text("Open Compressed File"),
+              ),
+            ],
+          ),
+        );
+      }
+
+      // Show success snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.compress, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text("File compressed with ${compressedFile.compressionRatio.toStringAsFixed(1)}% space savings"),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: "Open",
+              onPressed: () => OpenFilex.open(compressedFile.localPath),
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close progress dialog if open
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error compressing file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
   void _showFileOptions(UserFile file) {
     final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
 
@@ -107,6 +262,17 @@ class AllFilesScreenState extends State<AllFilesScreen> {
                     duration: const Duration(seconds: 3),
                   ),
                 );
+              },
+            ),
+            // Add compression option
+            ListTile(
+              leading: const Icon(Icons.compress, color: Colors.green),
+              title: const Text('Compress File', style: TextStyle(color: Colors.green)),
+              subtitle: const Text('Huffman/LZW compression',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                _compressFile(file);
               },
             ),
             ListTile(
@@ -165,6 +331,7 @@ class AllFilesScreenState extends State<AllFilesScreen> {
 
   void _showFileInfo(UserFile file) {
     final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
+    final isPdf = file.fileType.toLowerCase() == 'pdf';
 
     showDialog(
       context: context,
@@ -183,6 +350,22 @@ class AllFilesScreenState extends State<AllFilesScreen> {
             Text("Size: ${formatBytes(file.size)}", style: TextStyle(color: themeService.textColor)),
             const SizedBox(height: 4),
             Text("Uploaded: ${formatDate(file.uploadedAt)}", style: TextStyle(color: themeService.textColor)),
+            const SizedBox(height: 8),
+            const Divider(),
+            const Row(
+              children: [
+                Icon(Icons.compress, size: 16, color: Colors.green),
+                SizedBox(width: 4),
+                Text(
+                  "Compression Available",
+                  style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            Text(
+              isPdf ? "• Huffman Coding\n• LZW Algorithm" : "• Advanced Compression",
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ],
         ),
         actions: [
@@ -696,6 +879,171 @@ class _FolderViewScreenState extends State<FolderViewScreen> {
     return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
   }
 
+  // Helper methods for compression functionality
+  String formatBytes(int bytes) {
+    return _formatBytes(bytes);
+  }
+
+  String formatDate(DateTime dt) {
+    return _formatDate(dt);
+  }
+
+  Future<void> _compressFile(UserFile file) async {
+    if (!mounted) return;
+
+    try {
+      // Show progress dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text("Compressing file..."),
+              const SizedBox(height: 8),
+              Text(
+                "Applying advanced compression to: ${file.filename}",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Download file temporarily for compression
+      final url = await SupabaseService.getSignedUrl(file.path);
+      final response = await http.get(Uri.parse(url));
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${file.filename}');
+      await tempFile.writeAsBytes(response.bodyBytes);
+
+      // Compress the file
+      final compressedFile = await CompressionService.compressFile(
+        tempFile.path,
+        file.filename,
+      );
+
+      // Clean up temp file
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+
+      // Close progress dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show success dialog with compression stats
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.compress, color: Colors.green),
+                const SizedBox(width: 8),
+                const Text("File Compressed"),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Successfully compressed: ${file.filename}"),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Original Size:"),
+                    Text(formatBytes(compressedFile.originalSize)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Compressed Size:"),
+                    Text(formatBytes(compressedFile.compressedSize),
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Space Saved:"),
+                    Text("${compressedFile.compressionRatio.toStringAsFixed(1)}%",
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    "Method: ${compressedFile.compressionMethod}",
+                    style: const TextStyle(fontSize: 12, color: Colors.green),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await OpenFilex.open(compressedFile.localPath);
+                },
+                child: const Text("Open Compressed File"),
+              ),
+            ],
+          ),
+        );
+      }
+
+      // Show success snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.compress, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text("File compressed with ${compressedFile.compressionRatio.toStringAsFixed(1)}% space savings"),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: "Open",
+              onPressed: () => OpenFilex.open(compressedFile.localPath),
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close progress dialog if open
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error compressing file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   void _showFileOptions(UserFile file) {
     final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
 
@@ -724,6 +1072,17 @@ class _FolderViewScreenState extends State<FolderViewScreen> {
                     duration: const Duration(seconds: 3),
                   ),
                 );
+              },
+            ),
+            // Add compression option
+            ListTile(
+              leading: const Icon(Icons.compress, color: Colors.green),
+              title: const Text('Compress File', style: TextStyle(color: Colors.green)),
+              subtitle: const Text('Huffman/LZW compression',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                _compressFile(file);
               },
             ),
             ListTile(
@@ -798,6 +1157,7 @@ class _FolderViewScreenState extends State<FolderViewScreen> {
 
   void _showFileInfo(UserFile file) {
     final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
+    final isPdf = file.fileType.toLowerCase() == 'pdf';
 
     showDialog(
       context: context,
@@ -813,9 +1173,25 @@ class _FolderViewScreenState extends State<FolderViewScreen> {
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: themeService.textColor),
             ),
             const SizedBox(height: 8),
-            Text("Size: ${_formatBytes(file.size)}", style: TextStyle(color: themeService.textColor)),
+            Text("Size: ${formatBytes(file.size)}", style: TextStyle(color: themeService.textColor)),
             const SizedBox(height: 4),
-            Text("Uploaded: ${_formatDate(file.uploadedAt)}", style: TextStyle(color: themeService.textColor)),
+            Text("Uploaded: ${formatDate(file.uploadedAt)}", style: TextStyle(color: themeService.textColor)),
+            const SizedBox(height: 8),
+            const Divider(),
+            const Row(
+              children: [
+                Icon(Icons.compress, size: 16, color: Colors.green),
+                SizedBox(width: 4),
+                Text(
+                  "Compression Available",
+                  style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            Text(
+              isPdf ? "• Huffman Coding\n• LZW Algorithm" : "• Advanced Compression",
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ],
         ),
         actions: [

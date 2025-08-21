@@ -37,9 +37,126 @@ class _SummariesScreenState extends State<SummariesScreen> {
     return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
   }
 
+  // SIMPLIFIED METHOD TO HANDLE TXT SUMMARIES ONLY
+  Future<void> _openSummaryFile(SummaryFile summary) async {
+    try {
+      final file = File(summary.localPath);
+
+      // Check if file exists
+      if (!await file.exists()) {
+        throw Exception('Summary file not found');
+      }
+
+      // Read the text content
+      final content = await file.readAsString();
+
+      // Show content in a dialog with scrollable text
+      showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.8,
+            child: Column(
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(8),
+                      topRight: Radius.circular(8),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.summarize, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'AI Summary: ${summary.originalPdfName}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+                // Scrollable Content
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        content,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.6,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Footer with actions
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(8),
+                      bottomRight: Radius.circular(8),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await _shareFile(summary);
+                        },
+                        icon: const Icon(Icons.share),
+                        label: const Text('Share'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await OpenFilex.open(summary.localPath);
+                        },
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('Open External'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening summary: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _shareFile(SummaryFile summary) async {
     try {
-      await Share.shareXFiles([XFile(summary.localPath)], 
+      await Share.shareXFiles([XFile(summary.localPath)],
           text: 'AI Summary of ${summary.originalPdfName}');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -63,7 +180,7 @@ class _SummariesScreenState extends State<SummariesScreen> {
               title: Text('Open Summary', style: TextStyle(color: themeService.textColor)),
               onTap: () async {
                 Navigator.pop(context);
-                await OpenFilex.open(summary.localPath);
+                await _openSummaryFile(summary);
               },
             ),
             ListTile(
@@ -150,10 +267,10 @@ class _SummariesScreenState extends State<SummariesScreen> {
             ),
             Text(summary.filename, style: TextStyle(color: themeService.subtextColor)),
             const SizedBox(height: 12),
-            Text("Size: ${SummariesService.formatBytes(summary.size)}", 
+            Text("Size: ${SummariesService.formatBytes(summary.size)}",
                 style: TextStyle(color: themeService.textColor)),
             const SizedBox(height: 4),
-            Text("Created: ${_formatDate(summary.createdAt)}", 
+            Text("Created: ${_formatDate(summary.createdAt)}",
                 style: TextStyle(color: themeService.textColor)),
             const SizedBox(height: 12),
             Container(
@@ -167,12 +284,14 @@ class _SummariesScreenState extends State<SummariesScreen> {
                 children: [
                   Icon(Icons.smart_toy, size: 16, color: Colors.blue),
                   const SizedBox(width: 8),
-                  Text(
-                    "Generated by AI",
-                    style: TextStyle(
-                      color: Colors.blue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      "AI-Generated Text Summary",
+                      style: TextStyle(
+                        color: Colors.blue,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
@@ -188,7 +307,7 @@ class _SummariesScreenState extends State<SummariesScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              OpenFilex.open(summary.localPath);
+              _openSummaryFile(summary);
             },
             child: const Text("Open Summary"),
           ),
@@ -226,6 +345,70 @@ class _SummariesScreenState extends State<SummariesScreen> {
         const SnackBar(content: Text("All summaries deleted successfully.")),
       );
     }
+  }
+
+  void _showStorageInfo() async {
+    final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
+    final totalSize = await SummariesService.getTotalSummariesSize();
+    final count = await SummariesService.getSummariesCount();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: themeService.cardColor,
+        title: Row(
+          children: [
+            Icon(Icons.storage, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text("Storage Info", style: TextStyle(color: themeService.textColor)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Total Summaries:", style: TextStyle(color: themeService.textColor)),
+                Text("$count",
+                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Storage Used:", style: TextStyle(color: themeService.textColor)),
+                Text(SummariesService.formatBytes(totalSize),
+                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                "Summaries are stored locally on your device as text files in the app's Summaries folder. Text files are lightweight and easily shareable.",
+                style: TextStyle(
+                  color: themeService.textColor,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -379,12 +562,16 @@ class _SummariesScreenState extends State<SummariesScreen> {
                         children: [
                           Icon(Icons.smart_toy, size: 12, color: Colors.blue),
                           const SizedBox(width: 4),
-                          Text(
-                            "${SummariesService.formatBytes(summary.size)} • ${_formatDate(summary.createdAt)}",
-                            style: TextStyle(
-                              color: Colors.blue,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
+                          Expanded(
+                            child: Text(
+                              "${SummariesService.formatBytes(summary.size)} • ${_formatDate(summary.createdAt)} • TXT",
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -395,77 +582,13 @@ class _SummariesScreenState extends State<SummariesScreen> {
                     icon: Icon(Icons.more_vert, color: themeService.textColor),
                     onPressed: () => _showFileOptions(summary),
                   ),
-                  onTap: () => OpenFilex.open(summary.localPath),
+                  onTap: () => _openSummaryFile(summary),
                 ),
               );
             },
           ),
         );
       },
-    );
-  }
-
-  void _showStorageInfo() async {
-    final themeService = provider_package.Provider.of<ThemeService>(context, listen: false);
-    final totalSize = await SummariesService.getTotalSummariesSize();
-    final count = await SummariesService.getSummariesCount();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: themeService.cardColor,
-        title: Row(
-          children: [
-            Icon(Icons.storage, color: Colors.blue),
-            const SizedBox(width: 8),
-            Text("Storage Info", style: TextStyle(color: themeService.textColor)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Total Summaries:", style: TextStyle(color: themeService.textColor)),
-                Text("$count", 
-                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Storage Used:", style: TextStyle(color: themeService.textColor)),
-                Text(SummariesService.formatBytes(totalSize), 
-                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                "Summaries are stored locally on your device in the app's Summaries folder.",
-                style: TextStyle(
-                  color: themeService.textColor,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
-          ),
-        ],
-      ),
     );
   }
 }

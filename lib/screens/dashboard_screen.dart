@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/theme_service.dart';
+import '../services/user_session_service.dart';
 import 'login_screen.dart';
 import 'account_info_screen.dart';
 import 'settings_screen.dart';
@@ -39,12 +40,64 @@ class DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // ✅ Updated logout function using your UserSessionService
   void _logout(BuildContext context) async {
-    await Supabase.instance.client.auth.signOut();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginScreen()),
-    );
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text("Signing out..."),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Use your session service to logout (this handles both session service and Supabase signOut)
+      await UserSessionService.logoutUser();
+
+      // Also sign out from Supabase (in case it wasn't handled in your service)
+      await Supabase.instance.client.auth.signOut();
+
+      // Close loading dialog
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      // Navigate to login screen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Successfully signed out"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // Close loading dialog if it's open
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error during logout: ${e.toString()}"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

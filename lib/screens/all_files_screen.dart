@@ -186,40 +186,11 @@ class AllFilesScreenState extends State<AllFilesScreen> {
                 onPressed: () => Navigator.pop(context),
                 child: const Text("Close"),
               ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await OpenFilex.open(compressedFile.localPath);
-                },
-                child: const Text("Open Compressed File"),
-              ),
             ],
           ),
         );
       }
 
-      // Show success snackbar
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.compress, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text("File compressed with ${compressedFile.compressionRatio.toStringAsFixed(1)}% space savings"),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            action: SnackBarAction(
-              label: "Open",
-              onPressed: () => OpenFilex.open(compressedFile.localPath),
-            ),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
     } catch (e) {
       // Close progress dialog if open
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -995,40 +966,12 @@ class _FolderViewScreenState extends State<FolderViewScreen> {
                 onPressed: () => Navigator.pop(context),
                 child: const Text("Close"),
               ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await OpenFilex.open(compressedFile.localPath);
-                },
-                child: const Text("Open Compressed File"),
-              ),
             ],
           ),
         );
       }
 
-      // Show success snackbar
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.compress, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text("File compressed with ${compressedFile.compressionRatio.toStringAsFixed(1)}% space savings"),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            action: SnackBarAction(
-              label: "Open",
-              onPressed: () => OpenFilex.open(compressedFile.localPath),
-            ),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+
     } catch (e) {
       // Close progress dialog if open
       if (mounted) Navigator.of(context, rootNavigator: true).pop();

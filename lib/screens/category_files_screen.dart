@@ -164,39 +164,66 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
         Navigator.pop(context);
       }
 
-      // Show simple success snackbar instead of dialog
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                Icon(Icons.compress, color: Colors.green),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text("File compressed successfully!"),
-                      Text(
-                        "Saved ${compressedFile.compressionRatio.toStringAsFixed(1)}% space • Added to Archives",
-                        style: const TextStyle(fontSize: 12, color: Colors.white70),
-                      ),
-                    ],
+                const Text("File Compressed"),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Successfully compressed: ${file.filename}"),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Original Size:"),
+                    Text(formatBytes(compressedFile.originalSize)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Compressed Size:"),
+                    Text(formatBytes(compressedFile.compressedSize),
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Space Saved:"),
+                    Text("${compressedFile.compressionRatio.toStringAsFixed(1)}%",
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    "Method: ${compressedFile.compressionMethod}",
+                    style: const TextStyle(fontSize: 12, color: Colors.green),
                   ),
                 ),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: "VIEW",
-              textColor: Colors.white,
-              onPressed: () {
-                // Navigate to archives screen or open compressed file viewer
-                Navigator.pushNamed(context, '/archives');
-              },
-            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+            ],
           ),
         );
       }
@@ -297,14 +324,7 @@ class CategoryFilesScreenState extends State<CategoryFilesScreen> {
             ),
             backgroundColor: Colors.blue,
             duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: "VIEW",
-              textColor: Colors.white,
-              onPressed: () {
-                // Navigate to archives screen
-                Navigator.pushNamed(context, '/archives');
-              },
-            ),
+
           ),
         );
       }

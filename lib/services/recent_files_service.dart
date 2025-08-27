@@ -11,13 +11,15 @@ class RecentFilesService {
       throw Exception('User not logged in');
     }
 
-    // Get the most recent 3 files regardless of show_in_recents flag
+    // Get the most recent files that haven't been hidden from recents
+    // First, check if show_in_recents column exists, if not, add a default true condition
     final response = await supabase
         .from('user_files')
-        .select('id, filename, file_type, size, uploaded_at, path')
+        .select('id, filename, file_type, size, uploaded_at, path, show_in_recents')
         .eq('user_id', user.id)
+        .neq('show_in_recents', false) // Only get files where show_in_recents is not false
         .order('uploaded_at', ascending: false)
-        .limit(3); // Changed to 3 files as requested
+        .limit(3);
 
     return (response as List).map((e) => RecentFile.fromJson(e)).toList();
   }
@@ -26,6 +28,14 @@ class RecentFilesService {
     await supabase
         .from('user_files')
         .update({'show_in_recents': false})
+        .eq('id', fileId);
+  }
+
+  // Optional: Add a method to restore a file to recents if needed
+  Future<void> restoreToRecents(String fileId) async {
+    await supabase
+        .from('user_files')
+        .update({'show_in_recents': true})
         .eq('id', fileId);
   }
 }

@@ -476,75 +476,93 @@ class _ArchivesScreenState extends State<ArchivesScreen> with TickerProviderStat
           children: [
             Icon(Icons.bar_chart, color: Colors.green),
             const SizedBox(width: 8),
-            Text("Compression Statistics", style: TextStyle(color: themeService.textColor)),
+            Expanded(
+              child: Text("Compression Statistics",
+                  style: TextStyle(color: themeService.textColor)),
+            ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Total Files:", style: TextStyle(color: themeService.textColor)),
-                Text("$count",
-                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Original Size:", style: TextStyle(color: themeService.textColor)),
-                Text(CompressionService.formatBytes(totalOriginal),
-                    style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Compressed Size:", style: TextStyle(color: themeService.textColor)),
-                Text(CompressionService.formatBytes(totalCompressed),
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Space Saved:", style: TextStyle(color: themeService.textColor, fontWeight: FontWeight.bold)),
-                Text(CompressionService.formatBytes(spaceSaved),
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Overall Ratio:", style: TextStyle(color: themeService.textColor, fontWeight: FontWeight.bold)),
-                Text("${overallRatio.toStringAsFixed(1)}%",
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                "Files are compressed using RLE and GZIP algorithms. The best algorithm is automatically chosen for optimal compression.",
-                style: TextStyle(
-                  color: themeService.textColor,
-                  fontSize: 12,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Total Files:", style: TextStyle(color: themeService.textColor)),
+                    Text("$count",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor)),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Original Size:", style: TextStyle(color: themeService.textColor)),
+                    Flexible(
+                      child: Text(CompressionService.formatBytes(totalOriginal),
+                          style: TextStyle(fontWeight: FontWeight.bold, color: themeService.textColor),
+                          textAlign: TextAlign.right),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Compressed Size:", style: TextStyle(color: themeService.textColor)),
+                    Flexible(
+                      child: Text(CompressionService.formatBytes(totalCompressed),
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                          textAlign: TextAlign.right),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Space Saved:", style: TextStyle(color: themeService.textColor, fontWeight: FontWeight.bold)),
+                    Flexible(
+                      child: Text(CompressionService.formatBytes(spaceSaved),
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16),
+                          textAlign: TextAlign.right),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Overall Ratio:", style: TextStyle(color: themeService.textColor, fontWeight: FontWeight.bold)),
+                    Text("${overallRatio.toStringAsFixed(1)}%",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    "Files are compressed using RLE and GZIP algorithms. The best algorithm is automatically chosen for optimal compression.",
+                    style: TextStyle(
+                      color: themeService.textColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
         actions: [
           TextButton(

@@ -11,15 +11,17 @@ import '../models/all_files_model.dart';
 import 'supabase_service.dart';
 import 'summaries_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AiService {
+
   // API URLs
-  static const String _huggingFaceSummarizeUrl = 'https://api-inference.huggingface.co/models/facebook/bart-large-cnn';
-  static const String _geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+  static  String get _huggingFaceSummarizeUrl => dotenv.env['HUGGING_FACE_URL']! ;
+  static  String get _geminiApiUrl => dotenv.env['GEMINI_URL'] !;
 
   // API Keys
-  static const String _huggingFaceToken = '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';
-  static const String _geminiApiKey = 'AIzaSyDXyEzPCrposwMIg-B0CZQSscMm7_eMFmo';
+  static  String get _huggingFaceToken => dotenv.env['HUGGING_FACE_TOKEN']! ;
+  static  String get _geminiApiKey => dotenv.env['GEMINI_API_KEY']! ;
 
   // ROBUST PDF text extraction with multiple methods
   static Future<String> _extractTextFromPdf(String pdfPath) async {

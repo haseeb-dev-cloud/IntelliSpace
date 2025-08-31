@@ -66,7 +66,7 @@ class _ArchivesScreenState extends State<ArchivesScreen> with TickerProviderStat
     return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
   }
 
-  /// Fixed compressed file opening - DECOMPRESS FIRST, then open
+  /// compressed file opening - DECOMPRESS FIRST, then open
   Future<void> _openCompressedFile(CompressedFile compressedFile) async {
     // Show loading dialog
     showDialog(

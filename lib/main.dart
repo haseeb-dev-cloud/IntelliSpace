@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // ✅ Added
 
 // Services
 import 'package:intellispace/services/theme_service.dart';
@@ -16,10 +17,13 @@ import 'package:intellispace/screens/dashboard_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Initialize Supabase
+  // ✅ Load .env file
+  await dotenv.load(fileName: ".env");
+
+  // ✅ Initialize Supabase with .env variables
   await Supabase.initialize(
-    url: 'https://dhgwbzlpeahmlkvttskz.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRoZ3diemxwZWFobWxrdnR0c2t6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwNDEzOTYsImV4cCI6MjA2ODYxNzM5Nn0.ljwtf9CZDksXe-wdHqPpp8ra-9uP2UyEhBT39odhD2M',
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
 
   // ✅ Initialize user session service
@@ -41,7 +45,7 @@ class IntelliSpaceApp extends StatelessWidget {
             title: 'IntelliSpace',
             debugShowCheckedModeBanner: false,
             theme: themeService.theme,
-            home: const SplashScreen(), // Change to LoginScreen() or DashboardScreen() if needed
+            home: const SplashScreen(),
           );
         },
       ),

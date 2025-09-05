@@ -63,7 +63,7 @@ It provides secure file storage, intelligent file organization, and modern tools
 
 ### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/haseeb-dev-cloud/intellispace.git
+git clone https://github.com/haseeb-dev-cloud/IntelliSpace.git
 cd intellispace
 2️⃣ Install Dependencies
 flutter pub get

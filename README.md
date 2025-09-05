@@ -25,10 +25,29 @@ It provides secure file storage, intelligent file organization, and modern tools
 
 ## 📸 Screenshots
 
-| Dashboard                                       | Browse Files                                | AI Summarization                                           | Duplicate Detection                               | File Compression                                           | Storage Details                                  | App Settings                                       |
-|-------------------------------------------------|---------------------------------------------|------------------------------------------------------------|---------------------------------------------------|------------------------------------------------------------|--------------------------------------------------|----------------------------------------------------|
-| ![Dashboard](docs/screenshots/dashboard.png)    | ![Files](docs/screenshots/browse_files.png) | ![AI Summarization](docs/screenshots/ai_summarization.png) | ![AI Duplicates](docs/screenshots/duplicates.png) | ![File Compression](docs/screenshots/file_compression.png) | ![Storage Details](docs/screenshots/storage.png) | ![App Settings](docs/screenshots/app_settings.png) |
+### 🏠 Dashboard
+![Dashboard](docs/screenshots/dashboard.png)
 
+---
+
+### 📂 File Management
+| Browse Files | Storage Details |
+|--------------|-----------------|
+| ![Files](docs/screenshots/browse_files.png) | ![Storage](docs/screenshots/storage.png) |
+
+---
+
+### 🧠 AI Tools
+| Summarization | Duplicate Detection |
+|---------------|----------------------|
+| ![AI Summarization](docs/screenshots/ai_summarization.png) | ![AI Duplicates](docs/screenshots/duplicates.png) |
+
+---
+
+### ⚙️ Utilities
+| File Compression | App Settings |
+|------------------|--------------|
+| ![File Compression](docs/screenshots/file_compression.png) | ![App Settings](docs/screenshots/app_settings.png) |
 
 ---
 

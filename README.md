@@ -56,7 +56,6 @@ It provides secure file storage, intelligent file organization, and modern tools
 - [Flutter](https://flutter.dev/) – Cross-platform frontend
 - [Supabase](https://supabase.com/) – Auth, Database, Storage
 - [Node.js](https://nodejs.org/) – Optional APIs for advanced AI processing
-- [Searching](https://huggingface.co/) – Semantic search
 - [AI APIs](https://aistudio.google.com/app/apikey)- Pdf Summarization
 ---
 

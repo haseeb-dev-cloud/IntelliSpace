@@ -1,7 +1,6 @@
 # 🌌 IntelliSpace
 
 ![License](https://img.shields.io/github/license/haseeb-dev-cloud/IntelliSpace)
-
 ![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen?style=flat-square)
 
 > **IntelliSpace** is an **AI-powered cloud storage application** built with Flutter and Supabase.  

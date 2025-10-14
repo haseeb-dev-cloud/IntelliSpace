@@ -1,0 +1,33 @@
+name: Build iOS (Flutter)
+
+on:
+  workflow_dispatch: # allows manual trigger from GitHub
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build iOS app
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.5.4' # your Flutter version
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS (IPA)
+        run: flutter build ios --release --no-codesign
+
+      - name: Archive iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: intellispace-ipa
+          path: build/ios/iphoneos/*.ipa

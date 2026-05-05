@@ -14,9 +14,9 @@ It provides secure file storage, intelligent file organization, and modern tools
 - 📂 **Smart Organization** – Automatically groups files by type (images, videos, documents, etc.)
 - 🤝 **File Sharing** – Generate secure, time-limited share links
 - 🧠 **AI Tools** –
-    - Content summarization of text/PDFs
-    - Duplicate file detection
-    - Intelligent file search
+      - Integrated AI APIs (Gemini/Hugging Face) for summarizing PDF and text content  
+      - Implemented duplicate file detection using file comparison/hash-based techniques  
+      - Designed intelligent file search using metadata filtering and categorization  
 - 📉 **Compression** – Reduce file size without losing quality
 - 📱 **Cross-Platform** – Works on Android, iOS, Web, and Desktop
 

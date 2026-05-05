@@ -13,7 +13,7 @@ It provides secure file storage, intelligent file organization, and modern tools
 - 🔐 **Secure Storage** – Private Supabase bucket with Row-Level Security
 - 📂 **Smart Organization** – Automatically groups files by type (images, videos, documents, etc.)
 - 🤝 **File Sharing** – Generate secure, time-limited share links
-- 🧠 **AI Tools** –
+- 🧠 **AI Tools** –   
       - Integrated AI APIs (Gemini/Hugging Face) for summarizing PDF and text content  
       - Implemented duplicate file detection using file comparison/hash-based techniques  
       - Designed intelligent file search using metadata filtering and categorization  
